@@ -1227,6 +1227,7 @@ async function doVerifyCode(){
     }
 
     CURRENT_USER = data.user;
+    AUTH_MODE = 'login';
     await Promise.all([loadWorkspaceData(), wait(450)]);
 
     setLoading(false);
