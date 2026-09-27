@@ -2536,7 +2536,7 @@ function startPolling(){
   POLL_TIMER = setInterval(async ()=>{
     const active = document.activeElement;
     const typing = active && (active.tagName==='INPUT' || active.tagName==='SELECT' || active.tagName==='TEXTAREA');
-    if(typing || SCAN.active || VIEW.confirm) return;
+    if(typing || SCAN.active || VIEW.confirm || VIEW.tab === 'info') return;
 
     await loadRoomsFromServer();
     await loadReservationsFromServer();
