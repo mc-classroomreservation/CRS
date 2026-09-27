@@ -1000,10 +1000,30 @@ function renderVerifyForm(){
     <form onsubmit="event.preventDefault();doVerifyCode()">
     <p class="hint" style="margin-bottom:14px;">We sent a 6-digit code to <strong>${escapeAttr(PENDING_VERIFY_USERNAME||'')}</strong>. Enter it below to finish creating your account.</p>
     <div class="field"><label>Verification code</label><input id="vf-code" placeholder="123456" inputmode="numeric" maxlength="6" required/></div>
+    <div id="verify-message" aria-live="polite"></div>
     <button class="btn-primary" type="submit">Verify and sign in</button>
     </form>
+    <div class="switch-line">Didn't get a code? <a onclick="doResendCode()">Resend code</a></div>
     <div class="switch-line"><a onclick="switchAuth('register')">Back to sign up</a></div>
   `;
+}
+async function doResendCode(){
+  try{
+    const response = await fetch(API_BASE + '/api/resend-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: PENDING_VERIFY_USERNAME })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('verify-message', 'err', data.error || 'Failed to resend code.');
+      return;
+    }
+    setInlineMessage('verify-message', 'ok', 'A new code has been sent to your email.');
+  }catch(error){
+    console.error('RESEND CODE ERROR:', error);
+    setInlineMessage('verify-message', 'err', 'Cannot connect to the server.');
+  }
 }
 
 function toggleLoginPasswordVisibility(){
@@ -1096,6 +1116,12 @@ async function doRegister(){
 
     if(!name || !email || !p || !pConfirm){
         VIEW.err = 'Please fill in every field.';
+        render();
+        return;
+    }
+
+    if(p.length < 8){
+        VIEW.err = 'Password must be at least 8 characters.';
         render();
         return;
     }
@@ -1376,7 +1402,7 @@ function renderInformation(){
           <label class="photo-picker" for="profile-picture">${icon('image')}Change photo</label>
           <input class="photo-input" id="profile-picture" type="file" accept="image/png,image/jpeg,image/webp" onchange="previewProfilePicture(this)">
           <button class="btn-sm" type="button" onclick="clearProfilePicture()">${icon('close')}Remove photo</button>
-          <p class="profile-photo-note">JPG, PNG, or WebP. Images are resized before saving.</p>
+
         </div>
         <div class="profile-form">
           <div class="eyebrow">${roleLabel} profile</div>
