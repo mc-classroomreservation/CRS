@@ -467,7 +467,7 @@ function icon(name){
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths[name] || paths.rooms}</svg>`;
 }
 function navIcon(tab){
-  return icon({ rooms:'rooms', users:'users', reservations:'calendar', reports:'report', status:'room', scan:'scan', followers:'follow', search:'search', follows:'follow', info:'info' }[tab]);
+  return icon({ rooms:'rooms', users:'users', reservations:'calendar', reports:'report', status:'room', scan:'scan', followers:'follow', search:'search', follows:'follow', info:'info', schedules:'calendar' }[tab]);
 }
 function queueToast(message, tone='success', title='Updated'){
   VIEW.toast = { message, tone, title };
@@ -694,6 +694,16 @@ async function loadUsersFromServer(){
 }
 
 let PENDING_TEACHERS = [];
+let SCHEDULES = [];
+async function loadSchedulesFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/schedules');
+    if(!response.ok) throw new Error('Failed to load schedules');
+    SCHEDULES = await response.json();
+  }catch(error){
+    console.error('Error loading schedules:', error);
+  }
+}
 async function loadPendingTeachersFromServer(){
   try{
     const response = await fetch(API_BASE + '/api/users/pending');
@@ -858,7 +868,8 @@ async function loadWorkspaceData(){
     loadReservationsFromServer(),
     loadActivityLogsFromServer(),
     loadFollowsFromServer(),
-    loadPendingTeachersFromServer()
+    loadPendingTeachersFromServer(),
+    loadSchedulesFromServer()
   ]);
 }
 function setLoading(active, title, detail){
@@ -1292,7 +1303,7 @@ async function doVerifyCode(){
 /* ===================== SHELL ===================== */
 function renderShell(){
   const nav = CURRENT_USER.role==='admin'
-  ? [['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reservations','Reservations'],['reports','Reports'],['info','Profile']]
+  ? [['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reservations','Reservations'],['schedules','Schedules'],['reports','Reports'],['info','Profile']]
     : CURRENT_USER.role==='teacher'
 ? [['status','My Room'],['reservations','Reservations'],['scan','Scan QR'],['followers','Followers'],['info','Profile']]
     : [['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
@@ -1325,6 +1336,7 @@ function renderShell(){
   </div>
     ${VIEW.qrModalRoomId ? renderQRModal() : ''}
   ${VIEW.personModalId ? renderPersonModal() : ''}
+  ${VIEW.scheduleModal ? renderScheduleModal() : ''}
   ${VIEW.confirm ? renderConfirmModal() : ''}
   ${VIEW.toast ? renderToast() : ''}
   `;
@@ -1508,6 +1520,8 @@ function renderAdmin(){
   if(VIEW.tab==='approvals') return renderAdminApprovals();
 
   if(VIEW.tab==='reservations') return renderAdminReservations();
+
+  if(VIEW.tab==='schedules') return renderAdminSchedules();
 
   return renderAdminReports();
 
@@ -1842,6 +1856,161 @@ function renderAdminReports(){
       </tbody>
     </table>`}
   </div>`;
+}
+
+const DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+function formatTime12(t){
+  if(!t) return '';
+  const [h,m] = t.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2,'0')} ${period}`;
+}
+
+function renderAdminSchedules(){
+  const buildings = [...new Set(ROOMS.map(r => r.building).filter(Boolean))].sort();
+  if(!VIEW.scheduleBuilding || !buildings.includes(VIEW.scheduleBuilding)){
+    VIEW.scheduleBuilding = buildings[0] || '';
+  }
+  const buildingRooms = ROOMS.filter(r => r.building === VIEW.scheduleBuilding);
+
+  return `
+    <div class="page-head">
+      <h2>Schedules</h2>
+      <p>Set each room's fixed weekly class schedule.</p>
+    </div>
+
+    ${buildings.length === 0 ? `<div class="empty">Add a building to your rooms first (Manage Rooms) before setting a schedule.</div>` : `
+    <div class="field" style="max-width:280px;margin-bottom:18px;">
+      <label>Building</label>
+      <select onchange="setScheduleBuilding(this.value)">
+        ${buildings.map(b => `<option value="${escapeAttr(b)}" ${b===VIEW.scheduleBuilding?'selected':''}>${b}</option>`).join('')}
+      </select>
+    </div>
+
+    <div class="card table-card" style="overflow-x:auto;">
+      <table style="min-width:820px;">
+        <thead>
+          <tr>
+            <th style="min-width:130px;">Room</th>
+            ${DAY_NAMES.map(d => `<th>${d.slice(0,3)}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${buildingRooms.length === 0 ? `<tr><td colspan="8"><div class="empty" style="border:0;">No rooms in this building yet.</div></td></tr>` : buildingRooms.map(room => `
+            <tr>
+              <td><strong>${room.name}</strong></td>
+              ${DAY_NAMES.map((dayName, idx) => {
+                const dow = idx + 1;
+                const entries = SCHEDULES.filter(s => s.room_id === room.id && s.day_of_week === dow);
+                return `
+                  <td style="vertical-align:top;min-width:110px;">
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                      ${entries.map(s => `
+                        <button type="button" class="btn-sm" style="text-align:left;white-space:normal;" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">
+                          ${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}${s.label ? `<br><span class="hint">${s.label}</span>` : ''}
+                        </button>
+                      `).join('')}
+                      <button type="button" class="btn-sm" onclick="openScheduleModal(${room.id}, ${dow}, null)">${icon('plus')}Add</button>
+                    </div>
+                  </td>
+                `;
+              }).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    `}
+  `;
+}
+function setScheduleBuilding(b){ VIEW.scheduleBuilding = b; render(); }
+
+function openScheduleModal(roomId, dayOfWeek, scheduleId){
+  const room = ROOMS.find(r => r.id === roomId);
+  const existing = scheduleId ? SCHEDULES.find(s => s.id === scheduleId) : null;
+  VIEW.scheduleModal = {
+    roomId,
+    roomName: room ? room.name : '',
+    dayOfWeek,
+    editingId: scheduleId || null,
+    startTime: existing ? existing.start_time.slice(0,5) : '',
+    endTime: existing ? existing.end_time.slice(0,5) : '',
+    label: existing ? (existing.label || '') : ''
+  };
+  render();
+}
+function closeScheduleModal(){ VIEW.scheduleModal = null; render(); }
+function renderScheduleModal(){
+  const m = VIEW.scheduleModal;
+  if(!m) return '';
+  return `
+  <div class="modal-bg" onclick="if(event.target===this)closeScheduleModal()">
+    <div class="modal confirm-card" style="max-width:380px;">
+      <h3>${m.editingId ? 'Edit' : 'Add'} schedule</h3>
+      <p class="hint" style="margin-bottom:14px;">${m.roomName} — ${DAY_NAMES[m.dayOfWeek-1]}</p>
+      <div class="field"><label>Start time</label><input type="time" id="sched-start" value="${m.startTime}"></div>
+      <div class="field"><label>End time</label><input type="time" id="sched-end" value="${m.endTime}"></div>
+      <div class="field"><label>Label (subject, optional)</label><input id="sched-label" value="${escapeAttr(m.label)}" placeholder="e.g. Math 101"></div>
+      <div id="schedule-message" aria-live="polite"></div>
+      <div class="confirm-actions" style="justify-content:space-between;">
+        ${m.editingId ? `<button class="btn-sm danger" type="button" onclick="deleteScheduleEntry(${m.editingId})">${icon('trash')}Delete</button>` : `<span></span>`}
+        <div style="display:flex;gap:8px;">
+          <button class="btn-sm" type="button" onclick="closeScheduleModal()">Cancel</button>
+          <button class="btn-sm primary" type="button" onclick="saveScheduleEntry()">${icon('save')}Save</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+async function saveScheduleEntry(){
+  const m = VIEW.scheduleModal;
+  const start = document.getElementById('sched-start').value;
+  const end = document.getElementById('sched-end').value;
+  const label = document.getElementById('sched-label').value.trim();
+
+  if(!start || !end){
+    setInlineMessage('schedule-message', 'err', 'Start and end time are required.');
+    return;
+  }
+
+  const payload = { room_id: m.roomId, day_of_week: m.dayOfWeek, start_time: start, end_time: end, label: label || null };
+
+  try{
+    const response = m.editingId
+      ? await fetch(`${API_BASE}/api/schedules/${m.editingId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      : await fetch(`${API_BASE}/api/schedules`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('schedule-message', 'err', data.error || 'Failed to save schedule.');
+      return;
+    }
+
+    await loadSchedulesFromServer();
+    closeScheduleModal();
+    queueToast('Schedule saved.', 'success', 'Saved');
+  }catch(error){
+    console.error('SAVE SCHEDULE ERROR:', error);
+    setInlineMessage('schedule-message', 'err', 'Cannot connect to the server.');
+  }
+}
+async function deleteScheduleEntry(id){
+  try{
+    const response = await fetch(`${API_BASE}/api/schedules/${id}`, { method: 'DELETE' });
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('schedule-message', 'err', data.error || 'Failed to delete schedule.');
+      return;
+    }
+    await loadSchedulesFromServer();
+    closeScheduleModal();
+    queueToast('Schedule entry removed.', 'success', 'Removed');
+  }catch(error){
+    console.error('DELETE SCHEDULE ERROR:', error);
+    setInlineMessage('schedule-message', 'err', 'Cannot connect to the server.');
+  }
 }
 
 /* ===================== TEACHER ===================== */
