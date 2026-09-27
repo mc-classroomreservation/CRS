@@ -993,11 +993,11 @@ function renderRegisterForm(){
         <button type="button" class="${REG_ROLE==='teacher'?'active':''}" onclick="setRegRole('teacher')">Teacher</button>
       </div>
     </div>
-    <div class="field"><label>Complete Name</label><input id="rg-name" value="${escapeAttr(REG_DRAFT.name)}" placeholder="Juan Dela Cruz" autocomplete="name" required/></div>
-    <div class="field"><label>${REG_ROLE==='student' ? 'Institutional Email' : 'Email'}</label><input id="rg-email" type="email" value="${escapeAttr(REG_DRAFT.email)}" placeholder="${REG_ROLE==='student' ? 'e.g. juandelacruz@mabinicolleges.edu.ph' : 'e.g. juan.delacruz@email.com'}" autocomplete="email" autocapitalize="none" autocorrect="off" required/></div>
-    ${REG_ROLE==='teacher' ? `<div class="field"><label>Class Subject</label><input id="rg-subject" value="${escapeAttr(REG_DRAFT.subject)}" placeholder="e.g. Mathematics" required/></div>` : ''}
-    <div class="field"><label>Password</label><input id="rg-pass" type="password" value="${escapeAttr(REG_DRAFT.password)}" placeholder="Create a password" autocomplete="new-password" required/></div>
-    <div class="field"><label>Confirm Password</label><input id="rg-pass-confirm" type="password" value="${escapeAttr(REG_DRAFT.confirmPassword)}" placeholder="Re-enter your password" autocomplete="new-password" required/></div>
+    <div class="field"><label>Complete Name${errMark('name')}</label><input id="rg-name" value="${escapeAttr(REG_DRAFT.name)}" placeholder="Juan Dela Cruz" autocomplete="name" required/></div>
+    <div class="field"><label>${REG_ROLE==='student' ? 'Institutional Email' : 'Email'}${errMark('email')}</label><input id="rg-email" type="email" value="${escapeAttr(REG_DRAFT.email)}" placeholder="${REG_ROLE==='student' ? 'e.g. juandelacruz@mabinicolleges.edu.ph' : 'e.g. juan.delacruz@email.com'}" autocomplete="email" autocapitalize="none" autocorrect="off" required/></div>
+    ${REG_ROLE==='teacher' ? `<div class="field"><label>Class Subject${errMark('subject')}</label><input id="rg-subject" value="${escapeAttr(REG_DRAFT.subject)}" placeholder="e.g. Mathematics" required/></div>` : ''}
+    <div class="field"><label>Password${errMark('password')}</label><input id="rg-pass" type="password" value="${escapeAttr(REG_DRAFT.password)}" placeholder="Create a password" autocomplete="new-password" required/></div>
+    <div class="field"><label>Confirm Password${errMark('confirmPassword')}</label><input id="rg-pass-confirm" type="password" value="${escapeAttr(REG_DRAFT.confirmPassword)}" placeholder="Re-enter your password" autocomplete="new-password" required/></div>
     <button class="btn-primary" type="submit">${REG_ROLE==='student' ? 'Send verification code' : 'Create account'}</button>
     </form>
   `;
@@ -1043,7 +1043,31 @@ function toggleLoginPasswordVisibility(){
   btn.setAttribute('aria-label', willShow ? 'Hide password' : 'Show password');
 }
 
-function switchAuth(mode){ AUTH_MODE=mode; VIEW.err=''; VIEW.notice=null; render(); }
+function switchAuth(mode){ AUTH_MODE=mode; VIEW.err=''; VIEW.errField=[]; VIEW.notice=null; render(); }
+function captureRegDraft(){
+  const nameInput = document.getElementById('rg-name');
+  const emailInput = document.getElementById('rg-email');
+  const passInput = document.getElementById('rg-pass');
+  const passConfirmInput = document.getElementById('rg-pass-confirm');
+  const subjectInput = document.getElementById('rg-subject');
+  if(nameInput) REG_DRAFT.name = nameInput.value;
+  if(emailInput) REG_DRAFT.email = emailInput.value;
+  if(passInput) REG_DRAFT.password = passInput.value;
+  if(passConfirmInput) REG_DRAFT.confirmPassword = passConfirmInput.value;
+  if(subjectInput) REG_DRAFT.subject = subjectInput.value;
+}
+function guessErrorField(message){
+  const m = (message||'').toLowerCase();
+  if(m.includes('do not match')) return ['password','confirmPassword'];
+  if(m.includes('password')) return ['password'];
+  if(m.includes('email')) return ['email'];
+  if(m.includes('subject')) return ['subject'];
+  if(m.includes('name')) return ['name'];
+  return [];
+}
+function errMark(key){
+  return (VIEW.errField||[]).includes(key) ? ' <span style="color:var(--occupied);">*</span>' : '';
+}
 let REG_DRAFT = { name:'', email:'', password:'', confirmPassword:'', subject:'' };
 function setRegRole(r){
   const nameInput = document.getElementById('rg-name');
@@ -1121,20 +1145,25 @@ async function doRegister(){
     const p = document.getElementById('rg-pass').value;
     const pConfirm = document.getElementById('rg-pass-confirm').value;
 
+    captureRegDraft();
+
     if(!name || !email || !p || !pConfirm){
         VIEW.err = 'Please fill in every field.';
+        VIEW.errField = [!name?'name':null, !email?'email':null, !p?'password':null, !pConfirm?'confirmPassword':null].filter(Boolean);
         render();
         return;
     }
 
     if(p.length < 8){
         VIEW.err = 'Password must be at least 8 characters.';
+        VIEW.errField = ['password'];
         render();
         return;
     }
 
     if(p !== pConfirm){
         VIEW.err = 'Passwords do not match.';
+        VIEW.errField = ['password','confirmPassword'];
         render();
         return;
     }
@@ -1156,6 +1185,7 @@ async function doRegister(){
 
             if(!response.ok){
                 VIEW.err = data.error || 'Registration failed.';
+                VIEW.errField = guessErrorField(VIEW.err);
                 render();
                 return;
             }
@@ -1163,6 +1193,7 @@ async function doRegister(){
             PENDING_VERIFY_USERNAME = data.username;
             AUTH_MODE = 'verify';
             VIEW.err = '';
+            VIEW.errField = [];
             render();
             return;
         }
@@ -1170,6 +1201,7 @@ async function doRegister(){
         const subject = document.getElementById('rg-subject').value.trim();
         if(!subject){
             VIEW.err = 'Please fill in every field.';
+            VIEW.errField = ['subject'];
             render();
             return;
         }
@@ -1188,12 +1220,14 @@ async function doRegister(){
 
         if(!response.ok){
             VIEW.err = data.error || 'Registration failed.';
+            VIEW.errField = guessErrorField(VIEW.err);
             render();
             return;
         }
 
         AUTH_MODE = 'login';
         VIEW.err = '';
+        VIEW.errField = [];
         VIEW.notice = { type:'ok', text: data.message };
         render();
 
