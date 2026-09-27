@@ -1380,6 +1380,8 @@ function renderMain(){
 function renderInformation(){
   const user = currentUserRecord();
   const roleLabel = user.role === 'admin' ? 'Administrator' : user.role === 'teacher' ? 'Teacher' : 'Student';
+  const previewImage = PENDING_PROFILE_IMAGE !== undefined ? PENDING_PROFILE_IMAGE : user.profile_image;
+  const photoPreviewContent = previewImage ? `<img src="${previewImage}" alt="${escapeAttr(user.name)}">` : `<span>${initials(user.name)}</span>`;
   const details = user.role === 'student'
     ? `
       <div class="inline-form">
@@ -1399,7 +1401,7 @@ function renderInformation(){
     <form class="card profile-card" onsubmit="event.preventDefault();saveProfile()">
       <div class="profile-layout">
         <div class="profile-photo-group">
-          <div class="profile-photo" id="profile-photo-preview">${profilePhotoContent(user)}</div>
+          <div class="profile-photo" id="profile-photo-preview">${photoPreviewContent}</div>
           <label class="photo-picker" for="profile-picture">${icon('image')}Change photo</label>
           <input class="photo-input" id="profile-picture" type="file" accept="image/png,image/jpeg,image/webp" onchange="previewProfilePicture(this)">
           <button class="btn-sm" type="button" onclick="clearProfilePicture()">${icon('close')}Remove photo</button>
