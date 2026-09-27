@@ -620,9 +620,16 @@ async function saveProfile(){
     const courseInput = document.getElementById('profile-course');
     const yearInput = document.getElementById('profile-year');
     const blockInput = document.getElementById('profile-block');
-    if(!studentIdInput.value.trim() || !courseInput.value.trim() || !yearInput.value.trim() || !blockInput.value.trim()){
+     if(!studentIdInput.value.trim() || !courseInput.value.trim() || !yearInput.value.trim() || !blockInput.value.trim()){
       const firstMissing = [studentIdInput, courseInput, yearInput, blockInput].find(input => !input.value.trim());
       firstMissing.reportValidity(); firstMissing.focus(); return;
+    }
+    if(!/^\d{6}$/.test(studentIdInput.value.trim())){
+      studentIdInput.setCustomValidity('Student ID must be exactly 6 numbers.');
+      studentIdInput.reportValidity();
+      studentIdInput.setCustomValidity('');
+      studentIdInput.focus();
+      return;
     }
     student_id = studentIdInput.value.trim(); course = courseInput.value.trim(); year = yearInput.value.trim(); block = blockInput.value.trim();
   }
@@ -1385,7 +1392,7 @@ function renderInformation(){
   const details = user.role === 'student'
     ? `
       <div class="inline-form">
-        <div class="field"><label for="profile-student-id">Student ID</label><input id="profile-student-id" value="${escapeAttr(user.student_id || '')}" placeholder="e.g. 2026-001" autocapitalize="characters" required></div>
+        <div class="field"><label for="profile-student-id">Student ID</label><input id="profile-student-id" value="${escapeAttr(user.student_id || '')}" placeholder="e.g. 202020" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" title="Must be exactly 6 numbers" required></div>
         <div class="field"><label for="profile-course">Course</label><input id="profile-course" value="${escapeAttr(user.course || '')}" placeholder="e.g. BS Computer Science" required></div>
       </div>
       <div class="inline-form">
