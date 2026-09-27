@@ -1303,7 +1303,7 @@ async function doVerifyCode(){
 /* ===================== SHELL ===================== */
 function renderShell(){
   const nav = CURRENT_USER.role==='admin'
-  ? [['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reservations','Reservations'],['schedules','Schedules'],['reports','Reports'],['info','Profile']]
+  ? [['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reservations','Reservations'],['reports','Reports'],['info','Profile']]
     : CURRENT_USER.role==='teacher'
 ? [['status','My Room'],['reservations','Reservations'],['scan','Scan QR'],['followers','Followers'],['info','Profile']]
     : [['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
@@ -1521,8 +1521,6 @@ function renderAdmin(){
 
   if(VIEW.tab==='reservations') return renderAdminReservations();
 
-  if(VIEW.tab==='schedules') return renderAdminSchedules();
-
   return renderAdminReports();
 
 }
@@ -1568,6 +1566,7 @@ function renderAdminRooms(){
     rooms.length === 0
       ? `<div class="empty">No rooms yet. Add your first room above.</div>`
       : `
+        ${renderScheduleGrid(true)}
         <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
         <div class="room-list">
           ${rooms.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : rooms.filter(r=>r.status!=='occupied').map(r => `
@@ -1868,7 +1867,7 @@ function formatTime12(t){
   return `${hour12}:${String(m).padStart(2,'0')} ${period}`;
 }
 
-function renderAdminSchedules(){
+function renderScheduleGrid(editable){
   const buildings = [...new Set(ROOMS.map(r => r.building).filter(Boolean))].sort();
   if(!VIEW.scheduleBuilding || !buildings.includes(VIEW.scheduleBuilding)){
     VIEW.scheduleBuilding = buildings[0] || '';
@@ -1876,20 +1875,16 @@ function renderAdminSchedules(){
   const buildingRooms = ROOMS.filter(r => r.building === VIEW.scheduleBuilding);
 
   return `
-    <div class="page-head">
-      <h2>Schedules</h2>
-      <p>Set each room's fixed weekly class schedule.</p>
-    </div>
-
-    ${buildings.length === 0 ? `<div class="empty">Add a building to your rooms first (Manage Rooms) before setting a schedule.</div>` : `
-    <div class="field" style="max-width:280px;margin-bottom:18px;">
+    <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Fixed Schedule</h3></div>
+    ${buildings.length === 0 ? `<div class="empty">No buildings yet.</div>` : `
+    <div class="field" style="max-width:280px;margin-bottom:12px;">
       <label>Building</label>
       <select onchange="setScheduleBuilding(this.value)">
         ${buildings.map(b => `<option value="${escapeAttr(b)}" ${b===VIEW.scheduleBuilding?'selected':''}>${b}</option>`).join('')}
       </select>
     </div>
 
-    <div class="card table-card" style="overflow-x:auto;">
+    <div class="card table-card" style="overflow-x:auto;margin-bottom:26px;">
       <table style="min-width:820px;">
         <thead>
           <tr>
@@ -1907,12 +1902,19 @@ function renderAdminSchedules(){
                 return `
                   <td style="vertical-align:top;min-width:110px;">
                     <div style="display:flex;flex-direction:column;gap:4px;">
-                      ${entries.map(s => `
+                      ${entries.map(s => editable ? `
                         <button type="button" class="btn-sm" style="text-align:left;white-space:normal;" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">
                           ${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}${s.label ? `<br><span class="hint">${s.label}</span>` : ''}
                         </button>
+                      ` : `
+                        <div class="hint" style="padding:6px 8px;background:var(--bg);border-radius:8px;">
+                          ${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}${s.label ? `<br>${s.label}` : ''}
+                        </div>
                       `).join('')}
-                      <button type="button" class="btn-sm" onclick="openScheduleModal(${room.id}, ${dow}, null)">${icon('plus')}Add</button>
+                      ${editable
+                        ? `<button type="button" class="btn-sm" onclick="openScheduleModal(${room.id}, ${dow}, null)">${icon('plus')}Add</button>`
+                        : (entries.length===0 ? `<span class="hint">&mdash;</span>` : '')
+                      }
                     </div>
                   </td>
                 `;
@@ -2270,6 +2272,7 @@ function renderTeacherStatus(){
             <a onclick="goTab('reservations')" style="display:inline-block;margin-top:14px;font-size:13.5px;color:var(--brass);cursor:pointer;font-weight:600;">Reserve room</a>
     </div>
   </div>`}
+        ${renderScheduleGrid(false)}
         <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
   <div class="room-list">
     ${ROOMS.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : ROOMS.filter(r=>r.status!=='occupied').map(r=>`
