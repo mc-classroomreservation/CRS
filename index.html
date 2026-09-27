@@ -1569,11 +1569,11 @@ function renderAdminRooms(){
         ${renderScheduleGrid(true)}
         <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
         <div class="room-list">
-          ${rooms.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : rooms.filter(r=>r.status!=='occupied').map(r => `
+          ${rooms.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : rooms.filter(r=>r.status!=='occupied').map(r => { const scheduled = isRoomFixedScheduledNow(r.id); return `
             <div class="room-item">
               <div class="row-between">
                 <div class="rname">${r.name}</div>
-                <span class="badge vacant">Vacant</span>
+                <span class="badge" style="${scheduled ? 'background:#E2E2E2;color:#545454;' : 'background:var(--vacant-bg);color:var(--vacant);'}">${scheduled ? 'Scheduled now' : 'Vacant'}</span>
               </div>
               <div class="rloc">${r.building} · ${r.floor}</div>
               <div style="display:flex;gap:6px;margin-top:10px;">
@@ -1581,7 +1581,7 @@ function renderAdminRooms(){
                 <button class="btn-sm danger" onclick="deleteRoom('${r.id}')">${icon('trash')}Delete</button>
               </div>
             </div>
-          `).join('')}
+          `; }).join('')}
         </div>
 
         <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Occupied rooms</h3></div>
@@ -1858,6 +1858,21 @@ function renderAdminReports(){
 }
 
 const DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+function isRoomFixedScheduledNow(roomId){
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila', weekday: 'short',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).formatToParts(new Date());
+  const weekdayMap = { Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6, Sun:7 };
+  const weekdayStr = parts.find(p=>p.type==='weekday').value;
+  const day = weekdayMap[weekdayStr];
+  const hh = parts.find(p=>p.type==='hour').value;
+  const mm = parts.find(p=>p.type==='minute').value;
+  const ss = parts.find(p=>p.type==='second').value;
+  const nowTime = `${hh}:${mm}:${ss}`;
+  return SCHEDULES.some(s => s.room_id === roomId && s.day_of_week === day && s.start_time <= nowTime && s.end_time > nowTime);
+}
 
 function formatTime12(t){
   if(!t) return '';
@@ -2141,7 +2156,7 @@ async function createReservation(){
       return;
     }
     await loadReservationsFromServer();
-    notifyUpdate('Your reservation request is ready for review.', 'success', 'Reservation requested');
+    notifyUpdate('Your reservation is confirmed.', 'success', 'Reservation confirmed');
   }catch(error){
     console.error('CREATE RESERVATION ERROR:', error);
     setInlineMessage('reservation-message', 'err', 'Cannot connect to the server.');
@@ -2275,12 +2290,12 @@ function renderTeacherStatus(){
         ${renderScheduleGrid(false)}
         <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
   <div class="room-list">
-    ${ROOMS.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : ROOMS.filter(r=>r.status!=='occupied').map(r=>`
+    ${ROOMS.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : ROOMS.filter(r=>r.status!=='occupied').map(r=>{ const scheduled = isRoomFixedScheduledNow(r.id); return `
       <div class="room-item">
-        <div class="row-between"><div class="rname">${r.name}</div><span class="badge ${r.status}">Vacant</span></div>
+        <div class="row-between"><div class="rname">${r.name}</div><span class="badge" style="${scheduled ? 'background:#E2E2E2;color:#545454;' : 'background:var(--vacant-bg);color:var(--vacant);'}">${scheduled ? 'Scheduled now' : 'Vacant'}</span></div>
         <div class="rloc">${r.building} · ${r.floor}</div>
       </div>
-    `).join('')}
+    `; }).join('')}
   </div>
   <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Occupied rooms</h3></div>
   <div class="room-list">
@@ -2413,18 +2428,8 @@ async function handleScannedCode(data){
       render();
       return;
     }else{
-      const response = await fetch(`${API_BASE}/api/rooms/${room.id}/checkin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teacher_id: CURRENT_USER.id })
-      });
-      const result = await response.json();
-      if(!response.ok){
-        VIEW.notice = { type:'err', text: result.error || 'Failed to check in.' };
-        render();
-        return;
-      }
-      VIEW.notice = { type:'ok', text:`Checked in to ${room.name}.` };
+      await attemptCheckin(room, false);
+      return;
     }
 
     await loadRoomsFromServer();
@@ -2438,6 +2443,42 @@ async function handleScannedCode(data){
   }
 }
 
+async function attemptCheckin(room, force){
+  try{
+    const response = await fetch(`${API_BASE}/api/rooms/${room.id}/checkin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teacher_id: CURRENT_USER.id, force })
+    });
+    const result = await response.json();
+
+    if(response.status === 409 && result.scheduleConflict){
+      requestConfirmation({
+        title:'This room has a fixed class scheduled for this time.',
+        message: result.label ? `Scheduled: ${result.label}. If the class isn't actually here right now, you can still check in.` : `If the class isn't actually here right now, you can still check in.`,
+        actionLabel:"It's actually empty — check in anyway",
+        tone:'primary'
+      }, () => attemptCheckin(room, true));
+      return;
+    }
+
+    if(!response.ok){
+      VIEW.notice = { type:'err', text: result.error || 'Failed to check in.' };
+      render();
+      return;
+    }
+
+    VIEW.notice = { type:'ok', text:`Checked in to ${room.name}.` };
+    await loadRoomsFromServer();
+    VIEW.tab = 'scan';
+    persistWorkspace();
+    render();
+  }catch(error){
+    console.error('CHECK-IN ERROR:', error);
+    VIEW.notice = { type:'err', text:'Cannot connect to the server.' };
+    render();
+  }
+}
 /* ===================== STUDENT ===================== */
 function renderStudent(){
   if(VIEW.tab==='search') return renderStudentSearch();
