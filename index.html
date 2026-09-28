@@ -822,7 +822,7 @@ function defaultTab(role){
 }
 function allowedTabs(role){
   return role === 'admin'
-    ? ['rooms','users','reservations','reports','info']
+     ? ['rooms','users','approvals','reports','info']
     : role === 'teacher'
       ? ['status','reservations','scan','followers','info']
       : ['search','follows','info'];
@@ -1303,7 +1303,7 @@ async function doVerifyCode(){
 /* ===================== SHELL ===================== */
 function renderShell(){
   const nav = CURRENT_USER.role==='admin'
-  ? [['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reservations','Reservations'],['reports','Reports'],['info','Profile']]
+  ? [['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reports','Reports'],['info','Profile']]
     : CURRENT_USER.role==='teacher'
 ? [['status','My Room'],['reservations','Reservations'],['scan','Scan QR'],['followers','Followers'],['info','Profile']]
     : [['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
@@ -1337,6 +1337,7 @@ function renderShell(){
     ${VIEW.qrModalRoomId ? renderQRModal() : ''}
   ${VIEW.personModalId ? renderPersonModal() : ''}
   ${VIEW.scheduleModal ? renderScheduleModal() : ''}
+  ${VIEW.checkinModal ? renderCheckinTimeModal() : ''}
   ${VIEW.confirm ? renderConfirmModal() : ''}
   ${VIEW.toast ? renderToast() : ''}
   `;
@@ -1396,9 +1397,7 @@ function unseenAcceptedFollows(){
 }
 
 function navBadgeCount(tabKey){
-  if(CURRENT_USER.role === 'admin' && tabKey === 'reservations') return pendingReservationCount();
   if(CURRENT_USER.role === 'admin' && tabKey === 'approvals') return PENDING_TEACHERS.length;
-  if(CURRENT_USER.role === 'teacher' && tabKey === 'reservations') return unseenReservationUpdates().length;
   if(CURRENT_USER.role === 'teacher' && tabKey === 'followers') return pendingFollowRequestCount();
   if(CURRENT_USER.role === 'student' && tabKey === 'follows') return unseenFollowedCheckins().length + unseenAcceptedFollows().length;
   return 0;
@@ -1410,11 +1409,7 @@ function goTab(tab){
   VIEW.tab=tab;
   VIEW.notice=null;
   VIEW.declinedNotice = null;
-  if(tab === 'reservations' && CURRENT_USER.role === 'teacher'){
-    const updates = unseenReservationUpdates();
-    VIEW.declinedNotice = updates.filter(r => r.status === 'cancelled');
-    markSeen('reservations', updates.map(r => r.id));
-  }
+
   if(tab === 'follows' && CURRENT_USER.role === 'student'){
     markSeen('checkins', unseenFollowedCheckins().map(l => l.id));
     markSeen('accepted-follows', unseenAcceptedFollows().map(f => f.id));
@@ -1518,8 +1513,6 @@ function renderAdmin(){
   if(VIEW.tab==='users') return renderAdminUsers();
 
   if(VIEW.tab==='approvals') return renderAdminApprovals();
-
-  if(VIEW.tab==='reservations') return renderAdminReservations();
 
   return renderAdminReports();
 
@@ -1811,7 +1804,7 @@ function renderAdminReservations(){
   : activeReservations
   .map(r => `
         <article class="reservation-item">
-          <div class="row-between"><strong class="reservation-title">${r.room_name}</strong><span class="badge ${r.status==='approved'?'vacant':'pending'}">${r.status}</span></div>
+          <div class="row-between"><strong class="reservation-title">${r.room_name}</strong></div>
           <div class="reservation-meta"><strong>${r.teacher_name}</strong> · ${new Date(r.start_time).toLocaleString()} — ${new Date(r.end_time).toLocaleTimeString()}</div>
           <div class="action-row">
           ${r.status === 'pending'
@@ -1859,19 +1852,43 @@ function renderAdminReports(){
 
 const DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
-function isRoomFixedScheduledNow(roomId){
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Manila', weekday: 'short',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+function manilaNow(){
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone:'Asia/Manila', year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'
   }).formatToParts(new Date());
-  const weekdayMap = { Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6, Sun:7 };
-  const weekdayStr = parts.find(p=>p.type==='weekday').value;
-  const day = weekdayMap[weekdayStr];
-  const hh = parts.find(p=>p.type==='hour').value;
-  const mm = parts.find(p=>p.type==='minute').value;
-  const ss = parts.find(p=>p.type==='second').value;
-  const nowTime = `${hh}:${mm}:${ss}`;
-  return SCHEDULES.some(s => s.room_id === roomId && s.day_of_week === day && s.start_time <= nowTime && s.end_time > nowTime);
+  const get = t => parts.find(p => p.type === t).value;
+  const date = `${get('year')}-${get('month')}-${get('day')}`;
+  const time = `${get('hour')}:${get('minute')}:${get('second')}`;
+  return { date, time, full:`${date} ${time}` };
+}
+function weekDates(){
+  const now = manilaNow();
+  const base = new Date(now.date + 'T00:00:00Z');
+  const jsDay = base.getUTCDay();
+  const iso = jsDay === 0 ? 7 : jsDay;
+  base.setUTCDate(base.getUTCDate() - (iso - 1));
+  return Array.from({length:7}, (_, i) => {
+    const d = new Date(base);
+    d.setUTCDate(base.getUTCDate() + i);
+    return d.toISOString().slice(0,10);
+  });
+}
+function isRoomFixedScheduledNow(roomId){
+  const now = manilaNow();
+  const jsDay = new Date(now.date + 'T00:00:00Z').getUTCDay();
+  const day = jsDay === 0 ? 7 : jsDay;
+  return SCHEDULES.some(s => s.room_id === roomId && s.day_of_week === day && s.start_time <= now.time && s.end_time > now.time);
+}
+function roomLive(room){
+  const now = manilaNow();
+  if(room.status === 'occupied'){
+    const teacher = SERVER_USERS.find(u => String(u.id) === String(room.teacher_id));
+    const session = RESERVATIONS.find(r => r.room_id === room.id && r.status === 'approved' && String(r.teacher_id) === String(room.teacher_id) && r.start_time <= now.full && r.end_time > now.full);
+    return { state:'occupied', teacher, session };
+  }
+  if(isRoomFixedScheduledNow(room.id)) return { state:'scheduled' };
+  return { state:'vacant' };
 }
 
 function formatTime12(t){
@@ -1888,6 +1905,49 @@ function renderScheduleGrid(editable){
     VIEW.scheduleBuilding = buildings[0] || '';
   }
   const buildingRooms = ROOMS.filter(r => r.building === VIEW.scheduleBuilding);
+  const dates = weekDates();
+  const now = manilaNow();
+
+  const roomCell = room => {
+    const live = roomLive(room);
+    let badge = `<span class="badge vacant">Vacant</span>`;
+    let extra = '';
+    if(live.state === 'occupied'){
+      badge = `<span class="badge occupied">Occupied</span>`;
+      const who = live.teacher ? live.teacher.name : 'Unknown teacher';
+      const subject = live.teacher && live.teacher.class_subject ? ` · ${live.teacher.class_subject}` : '';
+      const until = live.session ? ` · until ${formatTime12(live.session.end_time.slice(11))}` : '';
+      extra = `<div class="hint" style="margin-top:4px;">${who}${subject}${until}</div>`;
+    }else if(live.state === 'scheduled'){
+      badge = `<span class="badge" style="background:#E2E2E2;color:#545454;">Fixed class now</span>`;
+    }
+    return `<strong>${room.name}</strong><div style="margin-top:6px;">${badge}</div>${extra}`;
+  };
+
+  const dayCell = (room, idx) => {
+    const dow = idx + 1;
+    const date = dates[idx];
+    const fixed = SCHEDULES.filter(s => s.room_id === room.id && s.day_of_week === dow);
+    const booked = RESERVATIONS.filter(r => r.room_id === room.id && r.status === 'approved' && r.start_time.slice(0,10) === date && r.end_time > now.full);
+
+    const fixedBlocks = fixed.map(s => editable
+      ? `<button type="button" class="btn-sm" style="text-align:left;white-space:normal;background:#E2E2E2;border-color:#D0D0D0;" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}${s.label ? `<br><span class="hint">${s.label}</span>` : ''}</button>`
+      : `<div style="background:#E2E2E2;color:#333;padding:6px 8px;border-radius:8px;font-size:12px;line-height:1.35;">${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}${s.label ? `<br>${s.label}` : ''}</div>`
+    ).join('');
+
+    const bookedBlocks = booked.map(r => {
+      const teacher = SERVER_USERS.find(u => String(u.id) === String(r.teacher_id));
+      const subject = teacher && teacher.class_subject ? `<br>${teacher.class_subject}` : '';
+      const isLive = room.status === 'occupied' && String(room.teacher_id) === String(r.teacher_id) && r.start_time <= now.full;
+      const colors = isLive ? 'background:var(--occupied-bg);color:#A5343A;' : 'background:var(--pending-bg);color:#A85745;';
+      return `<div style="${colors}padding:6px 8px;border-radius:8px;font-size:12px;line-height:1.35;">${formatTime12(r.start_time.slice(11))}&ndash;${formatTime12(r.end_time.slice(11))}<br><strong>${r.teacher_name}</strong>${subject}</div>`;
+    }).join('');
+
+    const empty = !editable && fixed.length === 0 && booked.length === 0 ? `<span class="hint">&mdash;</span>` : '';
+    const addBtn = editable ? `<button type="button" class="btn-sm" onclick="openScheduleModal(${room.id}, ${dow}, null)">${icon('plus')}Add</button>` : '';
+
+    return `<td style="vertical-align:top;min-width:125px;${date === now.date ? 'background:#F6F9FF;' : ''}"><div style="display:flex;flex-direction:column;gap:4px;">${fixedBlocks}${bookedBlocks}${empty}${addBtn}</div></td>`;
+  };
 
   return `
     <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Fixed Schedule</h3></div>
@@ -1899,41 +1959,26 @@ function renderScheduleGrid(editable){
       </select>
     </div>
 
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+      <span class="badge" style="background:#E2E2E2;color:#545454;">Fixed class</span>
+      <span class="badge pending">Reserved</span>
+      <span class="badge occupied">Occupied</span>
+      <span class="badge vacant">Vacant</span>
+    </div>
+
     <div class="card table-card" style="overflow-x:auto;margin-bottom:26px;">
-      <table style="min-width:820px;">
+      <table style="min-width:920px;">
         <thead>
           <tr>
-            <th style="min-width:130px;">Room</th>
-            ${DAY_NAMES.map(d => `<th>${d.slice(0,3)}</th>`).join('')}
+            <th style="min-width:150px;">Room</th>
+            ${DAY_NAMES.map((d, i) => `<th>${d.slice(0,3)}<br><span style="font-weight:400;letter-spacing:0;">${dates[i].slice(5).replace('-','/')}</span></th>`).join('')}
           </tr>
         </thead>
         <tbody>
           ${buildingRooms.length === 0 ? `<tr><td colspan="8"><div class="empty" style="border:0;">No rooms in this building yet.</div></td></tr>` : buildingRooms.map(room => `
             <tr>
-              <td><strong>${room.name}</strong></td>
-              ${DAY_NAMES.map((dayName, idx) => {
-                const dow = idx + 1;
-                const entries = SCHEDULES.filter(s => s.room_id === room.id && s.day_of_week === dow);
-                return `
-                  <td style="vertical-align:top;min-width:110px;">
-                    <div style="display:flex;flex-direction:column;gap:4px;">
-                      ${entries.map(s => editable ? `
-                        <button type="button" class="btn-sm" style="text-align:left;white-space:normal;" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">
-                          ${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}${s.label ? `<br><span class="hint">${s.label}</span>` : ''}
-                        </button>
-                      ` : `
-                        <div class="hint" style="padding:6px 8px;background:var(--bg);border-radius:8px;">
-                          ${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}${s.label ? `<br>${s.label}` : ''}
-                        </div>
-                      `).join('')}
-                      ${editable
-                        ? `<button type="button" class="btn-sm" onclick="openScheduleModal(${room.id}, ${dow}, null)">${icon('plus')}Add</button>`
-                        : (entries.length===0 ? `<span class="hint">&mdash;</span>` : '')
-                      }
-                    </div>
-                  </td>
-                `;
-              }).join('')}
+              <td style="vertical-align:top;">${roomCell(room)}</td>
+              ${DAY_NAMES.map((_, idx) => dayCell(room, idx)).join('')}
             </tr>
           `).join('')}
         </tbody>
@@ -2090,7 +2135,7 @@ function renderTeacherReservations(){
     </div>
 
         <p class="hint" style="margin-bottom:16px;font-size:13px;">
-      Scan your room's QR code at the scheduled time to check in.
+      Once you've reserved a room, scan its QR code at your scheduled time to check in.
       <a onclick="goTab('scan')" style="margin-left:6px;color:var(--brass);font-weight:600;cursor:pointer;">Scan QR</a>
     </p>
 
@@ -2100,7 +2145,7 @@ function renderTeacherReservations(){
     : `<div class="reservation-list">${myReservations
         .map(r => `
           <article class="reservation-item">
-            <div class="row-between"><strong class="reservation-title">${r.room_name}</strong><span class="badge ${r.status==='approved'?'vacant':'pending'}">${r.status}</span></div>
+            <div class="row-between"><strong class="reservation-title">${r.room_name}</strong></div>
             <div class="reservation-meta">${new Date(r.start_time).toLocaleString()} — ${new Date(r.end_time).toLocaleTimeString()}</div>
             <div class="action-row">
 ${(r.status === 'pending' || r.status === 'approved')
@@ -2116,7 +2161,10 @@ ${(r.status === 'pending' || r.status === 'approved')
 </div>
   `;
 }
-
+function focusReservationRoom(){
+  const el = document.getElementById('reservation-room');
+  if(el){ el.scrollIntoView({ behavior:'smooth', block:'center' }); el.focus(); }
+}
 async function createReservation(){
 
   const roomInput = document.getElementById('reservation-room');
@@ -2152,7 +2200,11 @@ async function createReservation(){
     });
     const data = await response.json();
     if(!response.ok){
-      setInlineMessage('reservation-message', 'warn', data.error || 'That room is already reserved during this time.');
+      if(data.scheduleConflict){
+        setInlineMessage('reservation-message', 'warn', `This room has a fixed sched at ${formatTime12(data.schedule_start)} – ${formatTime12(data.schedule_end)}${data.label ? ` (${data.label})` : ''}.<br><button type="button" class="btn-sm" style="margin-top:8px;" onclick="focusReservationRoom()">Find another room and adjust reservation</button>`);
+      }else{
+        setInlineMessage('reservation-message', 'warn', data.error || 'That room is already reserved during this time.');
+      }
       return;
     }
     await loadReservationsFromServer();
@@ -2428,7 +2480,7 @@ async function handleScannedCode(data){
       render();
       return;
     }else{
-      await attemptCheckin(room, false);
+      await attemptCheckin(room, null, false);
       return;
     }
 
@@ -2443,22 +2495,27 @@ async function handleScannedCode(data){
   }
 }
 
-async function attemptCheckin(room, force){
+async function attemptCheckin(room, endTime, force){
   try{
     const response = await fetch(`${API_BASE}/api/rooms/${room.id}/checkin`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teacher_id: CURRENT_USER.id, force })
+      body: JSON.stringify({ teacher_id: CURRENT_USER.id, end_time: endTime, force })
     });
     const result = await response.json();
 
+    if(response.status === 422 && result.needsTime){
+      openCheckinTimeModal(room);
+      return;
+    }
+
     if(response.status === 409 && result.scheduleConflict){
       requestConfirmation({
-        title:'This room has a fixed class scheduled for this time.',
-        message: result.label ? `Scheduled: ${result.label}. If the class isn't actually here right now, you can still check in.` : `If the class isn't actually here right now, you can still check in.`,
-        actionLabel:"It's actually empty — check in anyway",
+        title:`This room has a fixed sched at ${formatTime12(result.schedule_start)} – ${formatTime12(result.schedule_end)}`,
+        message: result.label ? `${result.label}. If nobody is actually using the room, you can check in instead.` : `If nobody is actually using the room, you can check in instead.`,
+        actionLabel:"Room's empty, check in instead",
         tone:'primary'
-      }, () => attemptCheckin(room, true));
+      }, () => attemptCheckin(room, endTime, true));
       return;
     }
 
@@ -2470,6 +2527,7 @@ async function attemptCheckin(room, force){
 
     VIEW.notice = { type:'ok', text:`Checked in to ${room.name}.` };
     await loadRoomsFromServer();
+    await loadReservationsFromServer();
     VIEW.tab = 'scan';
     persistWorkspace();
     render();
@@ -2478,6 +2536,41 @@ async function attemptCheckin(room, force){
     VIEW.notice = { type:'err', text:'Cannot connect to the server.' };
     render();
   }
+}
+
+function openCheckinTimeModal(room){
+  VIEW.checkinModal = { roomId: room.id, roomName: room.name };
+  render();
+}
+function closeCheckinTimeModal(){ VIEW.checkinModal = null; render(); }
+function renderCheckinTimeModal(){
+  const m = VIEW.checkinModal;
+  if(!m) return '';
+  return `
+  <div class="modal-bg" onclick="if(event.target===this)closeCheckinTimeModal()">
+    <div class="modal confirm-card" style="max-width:380px;">
+      <h3>Check in to ${m.roomName}</h3>
+      <p class="hint" style="margin-bottom:14px;">You're checking in now. Until what time will you use this room?</p>
+      <div class="field"><label>End time</label><input type="time" id="checkin-end"></div>
+      <div id="checkin-message" aria-live="polite"></div>
+      <div class="confirm-actions">
+        <button class="btn-sm" type="button" onclick="closeCheckinTimeModal()">Cancel</button>
+        <button class="btn-sm primary" type="button" onclick="submitCheckinTime()">${icon('check')}Check in</button>
+      </div>
+    </div>
+  </div>`;
+}
+async function submitCheckinTime(){
+  const m = VIEW.checkinModal;
+  const value = document.getElementById('checkin-end').value;
+  if(!value){
+    setInlineMessage('checkin-message', 'err', 'Please enter an end time.');
+    return;
+  }
+  const room = ROOMS.find(r => r.id === m.roomId);
+  VIEW.checkinModal = null;
+  render();
+  if(room) await attemptCheckin(room, value, false);
 }
 /* ===================== STUDENT ===================== */
 function renderStudent(){
@@ -2749,13 +2842,14 @@ function startPolling(){
   POLL_TIMER = setInterval(async ()=>{
     const active = document.activeElement;
     const typing = active && (active.tagName==='INPUT' || active.tagName==='SELECT' || active.tagName==='TEXTAREA');
-    if(typing || SCAN.active || VIEW.confirm || VIEW.tab === 'info') return;
+    if(typing || SCAN.active || VIEW.confirm || VIEW.tab === 'info' || VIEW.scheduleModal || VIEW.checkinModal || document.querySelector('#reservation-message .msg-banner')) return;
 
     await loadRoomsFromServer();
     await loadReservationsFromServer();
     await loadActivityLogsFromServer();
     await loadFollowsFromServer();
     await loadUsersFromServer();
+    await loadSchedulesFromServer();
     if(CURRENT_USER.role === 'admin'){
       await loadPendingTeachersFromServer();
     }
