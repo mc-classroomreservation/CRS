@@ -284,6 +284,9 @@
   .reservation-list{display:grid;gap:0;}.reservation-item{padding:16px 0;border-bottom:1px solid var(--border);}.reservation-item:first-child{padding-top:0;}.reservation-item:last-child{padding-bottom:0;border-bottom:0;}
   .reservation-title{font-size:15px;font-weight:700;}.reservation-meta{margin-top:5px;color:var(--ink-soft);font-size:12.5px;line-height:1.5;}.reservation-meta strong{color:var(--ink);font-weight:700;}
   .teacher-list-item .action-row{margin:0;flex-shrink:0;}
+    .sched-chip{padding:6px 8px;border-radius:8px;line-height:1.3;}
+  .sched-chip-time{font-size:12px;font-weight:700;text-align:center;}
+  .sched-chip-label{font-size:10.5px;text-align:center;margin-top:2px;opacity:.85;}
   .avatar{overflow:hidden;}.avatar.has-photo{background:#E2E2E2;}.avatar img{width:100%;height:100%;display:block;object-fit:cover;}
   .profile-card{max-width:760px;}.profile-layout{display:grid;grid-template-columns:150px minmax(0,1fr);gap:28px;align-items:start;}.profile-photo-group{display:grid;justify-items:center;gap:10px;}.profile-photo{display:grid;place-items:center;width:118px;height:118px;overflow:hidden;border:4px solid #fff;border-radius:50%;background:#E2E2E2;box-shadow:0 0 0 1px var(--border),0 10px 20px -14px rgba(18,19,24,.45);color:var(--navy);font-size:28px;font-weight:800;}.profile-photo img{width:100%;height:100%;object-fit:cover;}.photo-picker{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 11px;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink);font-size:12px;font-weight:700;cursor:pointer;}.photo-picker:hover{border-color:var(--forest);color:var(--forest);}.photo-picker .icon{margin-right:6px;}.photo-input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;}.profile-photo-note{max-width:145px;color:var(--ink-soft);font-size:11px;line-height:1.45;text-align:center;}.profile-form .field:first-child{margin-top:0;}.profile-form .btn-primary{width:auto;min-width:160px;margin-top:24px;}.profile-form .btn-primary .icon{margin-right:6px;}
   .toast{position:fixed;right:22px;bottom:22px;z-index:70;display:flex;align-items:flex-start;gap:10px;width:min(360px,calc(100vw - 44px));padding:13px 14px;border:1px solid var(--border);border-radius:12px;background:#fff;box-shadow:0 16px 38px rgba(18,19,24,.18);color:var(--ink);font-size:13px;line-height:1.4;animation:toast-in .24s ease-out;}
@@ -460,6 +463,7 @@ function icon(name){
     info:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="8" r="1" fill="currentColor" stroke="none"/><path d="M12 12v5"/>',
     image:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/>',
     save:'<path d="M5 3h12l3 3v15H4V4a1 1 0 0 1 1-1Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/>',
+        door:'<rect x="5" y="3" width="14" height="18" rx="1"/><circle cx="14" cy="12" r="1" fill="currentColor" stroke="none"/>',
      logout:'<path d="M10 17l5-5-5-5M15 12H3"/><path d="M21 19V5a2 2 0 0 0-2-2h-6"/>',
     eye:'<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/>',
     eyeoff:'<path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.86 21.86 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.86 21.86 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/>'
@@ -467,7 +471,7 @@ function icon(name){
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths[name] || paths.rooms}</svg>`;
 }
 function navIcon(tab){
-  return icon({ rooms:'rooms', users:'users', reservations:'calendar', reports:'report', status:'room', scan:'scan', followers:'follow', search:'search', follows:'follow', info:'info', schedules:'calendar' }[tab]);
+  return icon({ rooms:'rooms', users:'users', reservations:'calendar', reports:'report', status:'door', scan:'scan', followers:'follow', search:'search', follows:'follow', info:'info', schedules:'calendar', approvals:'check' }[tab]);
 }
 function queueToast(message, tone='success', title='Updated'){
   VIEW.toast = { message, tone, title };
@@ -1915,9 +1919,8 @@ function renderScheduleGrid(editable){
     if(live.state === 'occupied'){
       badge = `<span class="badge occupied">Occupied</span>`;
       const who = live.teacher ? live.teacher.name : 'Unknown teacher';
-      const subject = live.teacher && live.teacher.class_subject ? ` · ${live.teacher.class_subject}` : '';
       const until = live.session ? ` · until ${formatTime12(live.session.end_time.slice(11))}` : '';
-      extra = `<div class="hint" style="margin-top:4px;">${who}${subject}${until}</div>`;
+      extra = `<div class="hint" style="margin-top:4px;">${who}${until}</div>`;
     }else if(live.state === 'scheduled'){
       badge = `<span class="badge" style="background:#E2E2E2;color:#545454;">Fixed class now</span>`;
     }
@@ -1930,17 +1933,21 @@ function renderScheduleGrid(editable){
     const fixed = SCHEDULES.filter(s => s.room_id === room.id && s.day_of_week === dow);
     const booked = RESERVATIONS.filter(r => r.room_id === room.id && r.status === 'approved' && r.start_time.slice(0,10) === date && r.end_time > now.full);
 
-    const fixedBlocks = fixed.map(s => editable
-      ? `<button type="button" class="btn-sm" style="text-align:left;white-space:normal;background:#E2E2E2;border-color:#D0D0D0;" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}${s.label ? `<br><span class="hint">${s.label}</span>` : ''}</button>`
-      : `<div style="background:#E2E2E2;color:#333;padding:6px 8px;border-radius:8px;font-size:12px;line-height:1.35;">${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}${s.label ? `<br>${s.label}` : ''}</div>`
-    ).join('');
+    const overriddenByBooking = s => booked.some(r => r.start_time.slice(11) < s.end_time && r.end_time.slice(11) > s.start_time);
+
+    const fixedBlocks = fixed.filter(s => !overriddenByBooking(s)).map(s => {
+      const timeText = `${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}`;
+      const inner = `<div class="sched-chip-time">${timeText}</div>${s.label ? `<div class="sched-chip-label">${s.label}</div>` : ''}`;
+      return editable
+        ? `<div class="sched-chip" style="background:#E2E2E2;color:#333;cursor:pointer;" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">${inner}</div>`
+        : `<div class="sched-chip" style="background:#E2E2E2;color:#333;">${inner}</div>`;
+    }).join('');
 
     const bookedBlocks = booked.map(r => {
-      const teacher = SERVER_USERS.find(u => String(u.id) === String(r.teacher_id));
-      const subject = teacher && teacher.class_subject ? `<br>${teacher.class_subject}` : '';
       const isLive = room.status === 'occupied' && String(room.teacher_id) === String(r.teacher_id) && r.start_time <= now.full;
       const colors = isLive ? 'background:var(--occupied-bg);color:#A5343A;' : 'background:var(--pending-bg);color:#A85745;';
-      return `<div style="${colors}padding:6px 8px;border-radius:8px;font-size:12px;line-height:1.35;">${formatTime12(r.start_time.slice(11))}&ndash;${formatTime12(r.end_time.slice(11))}<br><strong>${r.teacher_name}</strong>${subject}</div>`;
+      const timeText = `${formatTime12(r.start_time.slice(11))}&ndash;${formatTime12(r.end_time.slice(11))}`;
+      return `<div class="sched-chip" style="${colors}"><div class="sched-chip-time">${timeText}</div><div class="sched-chip-label">${r.teacher_name}</div></div>`;
     }).join('');
 
     const empty = !editable && fixed.length === 0 && booked.length === 0 ? `<span class="hint">&mdash;</span>` : '';
@@ -1963,7 +1970,6 @@ function renderScheduleGrid(editable){
       <span class="badge" style="background:#E2E2E2;color:#545454;">Fixed class</span>
       <span class="badge pending">Reserved</span>
       <span class="badge occupied">Occupied</span>
-      <span class="badge vacant">Vacant</span>
     </div>
 
     <div class="card table-card" style="overflow-x:auto;margin-bottom:26px;">
@@ -2364,7 +2370,8 @@ function renderTeacherStatus(){
 function renderTeacherScan(){
   const mine = myOccupiedRoom();
   return `
-  <div class="page-head"><h2>Scan Room QR</h2><p>Scan the code on the classroom door to check in — scan it again to check out.</p></div>
+   <div class="page-head"><h2>Scan Room QR</h2><p>Scan the code on the classroom door to check in — scan it again to check out.</p></div>
+  <p class="hint" style="margin-bottom:14px;">Even if a room has a fixed class scheduled, you can still check in — scan its QR, enter your time, then choose "Room's empty, check in instead."</p>
   ${VIEW.notice ? `<div class="msg-banner ${VIEW.notice.type}">${VIEW.notice.text}</div>` : ''}
   <div class="card">
     <div id="scanner-area">
