@@ -2020,7 +2020,7 @@ function renderScheduleModal(){
       <p class="hint" style="margin-bottom:14px;">${m.roomName} — ${DAY_NAMES[m.dayOfWeek-1]}</p>
       <div class="field"><label>Start time</label><input type="time" id="sched-start" value="${m.startTime}"></div>
       <div class="field"><label>End time</label><input type="time" id="sched-end" value="${m.endTime}"></div>
-      <div class="field"><label>Label (subject, optional)</label><input id="sched-label" value="${escapeAttr(m.label)}" placeholder="e.g. Math 101"></div>
+      <div class="field"><label>Name of Teacher</label><input id="sched-label" value="${escapeAttr(m.label)}" placeholder="e.g. Math 101"></div>
       <div id="schedule-message" aria-live="polite"></div>
       <div class="confirm-actions" style="justify-content:space-between;">
         ${m.editingId ? `<button class="btn-sm danger" type="button" onclick="deleteScheduleEntry(${m.editingId})">${icon('trash')}Delete</button>` : `<span></span>`}
