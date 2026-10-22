@@ -390,6 +390,64 @@
     .plate-title{font-size:22px;}
     .responsive-table td{grid-template-columns:72px minmax(0,1fr);gap:8px;}
   }
+
+  /* --- DASHBOARD SPECIFIC STYLES --- */
+  .welcome-banner{background:linear-gradient(135deg, var(--navy) 0%, var(--navy-soft) 100%);padding:24px 30px;border-radius:var(--radius);display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow);margin-bottom:24px;}
+  .welcome-banner h2{color:#fff;font-size:24px;margin-bottom:6px;font-family:'Lato',sans-serif;font-weight:700;}
+  .welcome-banner p{color:rgba(255,255,255,.7);font-size:14px;}
+  
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;margin-bottom:24px;}
+  .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;display:flex;align-items:center;gap:16px;box-shadow:var(--shadow);transition:transform .2s ease;}
+  .stat-card:hover{transform:translateY(-2px);}
+  .stat-icon{width:48px;height:48px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;}
+  .stat-icon.blue{background:#EEF2FF;color:var(--forest);}
+  .stat-icon.green{background:var(--vacant-bg);color:var(--vacant);}
+  .stat-icon.red{background:var(--occupied-bg);color:var(--occupied);}
+  .stat-icon.orange{background:var(--pending-bg);color:var(--pending);}
+  .stat-content .label{color:var(--ink-soft);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;}
+  .stat-content .value{color:var(--ink);font-size:24px;font-weight:900;line-height:1.1;margin-top:4px;}
+
+  .dash-grid{display:grid;grid-template-columns:2fr 1fr;gap:20px;}
+  .dash-col{display:flex;flex-direction:column;gap:20px;}
+  @media(max-width:1000px){.dash-grid{grid-template-columns:1fr;}}
+  
+  .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);}
+  .card-head h3{font-size:15px;font-weight:700;}
+  .quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+  .donut-wrap{display:flex;align-items:center;gap:24px;}
+  .donut{width:110px;height:110px;border-radius:50%;display:grid;place-items:center;position:relative;flex-shrink:0;}
+  .donut-inner{width:80px;height:80px;background:#fff;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 2px 4px rgba(0,0,0,.05);}
+  .donut-inner strong{font-size:22px;font-weight:900;line-height:1;}
+  .donut-inner span{font-size:10px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;margin-top:2px;}
+  .legend{display:flex;flex-direction:column;gap:10px;}
+  .legend-item{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;}
+  .legend-dot{width:10px;height:10px;border-radius:50%;}
+
+  .status-pill{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:11px;font-weight:900;}
+  .status-pill.occupied{background:var(--occupied-bg);color:#A5343A;}
+  .status-pill.vacant{background:var(--vacant-bg);color:#21704D;}
+  .status-pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+
+  .timeline{display:flex;flex-direction:column;gap:0;}
+  .timeline-item{display:flex;gap:14px;position:relative;padding-bottom:16px;}
+  .timeline-item:last-child{padding-bottom:0;}
+  .timeline-item::before{content:'';position:absolute;left:11px;top:24px;bottom:0;width:2px;background:var(--border);}
+  .timeline-item:last-child::before{display:none;}
+  .timeline-dot{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;z-index:1;flex-shrink:0;color:#fff;}
+  .timeline-dot.in{background:var(--vacant);}
+  .timeline-dot.out{background:var(--occupied);}
+  .timeline-content{flex:1;padding-top:2px;}
+  .timeline-title{font-size:13px;font-weight:700;}
+  .timeline-time{font-size:11px;color:var(--ink-soft);margin-top:3px;}
+
+  .agenda-item{display:flex;gap:16px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:#fafbfc;}
+  .agenda-time{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:60px;border-right:1px solid var(--border);padding-right:14px;}
+  .agenda-time strong{font-size:15px;color:var(--forest);}
+  .agenda-time span{font-size:10px;color:var(--ink-soft);font-weight:700;}
+  .agenda-details{flex:1;}
+  .agenda-details h4{font-size:14px;margin-bottom:3px;}
+  .agenda-details p{font-size:12px;color:var(--ink-soft);}
 </style>
 </head>
 <body>
@@ -449,6 +507,9 @@ function dateForInput(date = new Date()){
 }
 function icon(name){
   const paths = {
+    dashboard:'<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>',
+    building:'<rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01"/>',
+    arrowRight:'<path d="M5 12h14M12 5l7 7-7 7"/>',
     rooms:'<path d="M3 21h18"/><path d="M5 21V6l7-3 7 3v15"/><path d="M9 21v-6h6v6"/><path d="M8 9h.01M16 9h.01"/>',
     users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
     calendar:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/>',
@@ -466,8 +527,8 @@ function icon(name){
     info:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="8" r="1" fill="currentColor" stroke="none"/><path d="M12 12v5"/>',
     image:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/>',
     save:'<path d="M5 3h12l3 3v15H4V4a1 1 0 0 1 1-1Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/>',
-        door:'<rect x="5" y="3" width="14" height="18" rx="1"/><circle cx="14" cy="12" r="1" fill="currentColor" stroke="none"/>',
-     logout:'<path d="M10 17l5-5-5-5M15 12H3"/><path d="M21 19V5a2 2 0 0 0-2-2h-6"/>',
+    door:'<rect x="5" y="3" width="14" height="18" rx="1"/><circle cx="14" cy="12" r="1" fill="currentColor" stroke="none"/>',
+    logout:'<path d="M10 17l5-5-5-5M15 12H3"/><path d="M21 19V5a2 2 0 0 0-2-2h-6"/>',
     eye:'<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/>',
     eyeoff:'<path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.86 21.86 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.86 21.86 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/>'
   };
@@ -821,18 +882,14 @@ function performLogout(){
   render();
 }
 function defaultTab(role){
-  return role === 'admin'
-    ? 'rooms'
-    : role === 'teacher'
-      ? 'status'
-      : 'search';
+  return 'dashboard';
 }
 function allowedTabs(role){
   return role === 'admin'
-     ? ['rooms','users','approvals','reports','info']
+     ? ['dashboard','rooms','users','approvals','reports','info']
     : role === 'teacher'
-      ? ['status','reservations','scan','followers','info']
-      : ['search','follows','info'];
+      ? ['dashboard','status','reservations','scan','followers','info']
+      : ['dashboard','search','follows','info'];
 }
 function persistWorkspace(){
   if(!CURRENT_USER) return;
@@ -1310,10 +1367,10 @@ async function doVerifyCode(){
 /* ===================== SHELL ===================== */
 function renderShell(){
   const nav = CURRENT_USER.role==='admin'
-  ? [['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reports','Reports'],['info','Profile']]
+  ? [['dashboard','Dashboard'],['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reports','Reports'],['info','Profile']]
     : CURRENT_USER.role==='teacher'
-? [['status','My Room'],['reservations','Reservations'],['scan','Scan QR'],['followers','Followers'],['info','Profile']]
-    : [['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
+? [['dashboard','Dashboard'],['status','My Room'],['reservations','Reservations'],['scan','Scan QR'],['followers','Followers'],['info','Profile']]
+    : [['dashboard','Dashboard'],['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
   const vacantRooms = ROOMS.filter(room => room.status === 'vacant').length;
   return `
   <div class="shell">
@@ -1426,6 +1483,11 @@ function goTab(tab){
 }
 
 function renderMain(){
+  if(VIEW.tab === 'dashboard'){
+    if(CURRENT_USER.role === 'admin') return renderAdminDashboard();
+    if(CURRENT_USER.role === 'teacher') return renderTeacherDashboard();
+    return renderStudentDashboard();
+  }
   if(VIEW.tab === 'info') return renderInformation();
   if(CURRENT_USER.role==='admin') return renderAdmin();
   if(CURRENT_USER.role==='teacher') return renderTeacher();
@@ -1510,6 +1572,370 @@ async function changePassword(){
     console.error('CHANGE PASSWORD ERROR:', error);
     setInlineMessage('password-message', 'err', 'Cannot connect to the server.');
   }
+}
+
+/* ===================== DASHBOARDS ===================== */
+function renderAdminDashboard(){
+  const vacant = ROOMS.filter(r => r.status === 'vacant').length;
+  const occupied = ROOMS.filter(r => r.status === 'occupied').length;
+  const total = ROOMS.length;
+  const occupiedPercent = total === 0 ? 0 : Math.round((occupied / total) * 100);
+
+  const occupiedRooms = ROOMS.filter(r => r.status === 'occupied');
+  const recentLogs = ACTIVITY_LOGS.slice(0, 4);
+
+  return `
+    <div class="welcome-banner">
+      <div>
+        <h2>Good morning, ${CURRENT_USER.name}</h2>
+        <p>Here is what's happening on campus today.</p>
+      </div>
+      <div style="font-size:48px; opacity:0.15; color:#fff;">${icon('building')}</div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-icon blue">${icon('building')}</div>
+        <div class="stat-content">
+          <div class="label">Total Rooms</div>
+          <div class="value">${total}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">${icon('check')}</div>
+        <div class="stat-content">
+          <div class="label">Available Now</div>
+          <div class="value" style="color:var(--vacant);">${vacant}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Occupied Now</div>
+          <div class="value" style="color:var(--occupied);">${occupied}</div>
+        </div>
+      </div>
+      <div class="stat-card" style="cursor:pointer;" onclick="goTab('approvals')">
+        <div class="stat-icon orange">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Pending Approvals</div>
+          <div class="value" style="color:var(--pending);">${PENDING_TEACHERS.length}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head">
+            <h3>Campus Occupancy</h3>
+            <span class="status-pill vacant"><span class="dot"></span>Live Data</span>
+          </div>
+          <div class="donut-wrap">
+            <div class="donut" style="background: conic-gradient(var(--occupied) 0% ${occupiedPercent}%, var(--vacant) ${occupiedPercent}% 100%);">
+              <div class="donut-inner">
+                <strong>${occupiedPercent}%</strong>
+                <span>Occupied</span>
+              </div>
+            </div>
+            <div class="legend">
+              <div class="legend-item"><div class="legend-dot" style="background:var(--occupied);"></div> Occupied Rooms (${occupied})</div>
+              <div class="legend-item"><div class="legend-dot" style="background:var(--vacant);"></div> Available Rooms (${vacant})</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Live Room Status</h3>
+            <button class="btn-sm" onclick="goTab('rooms')">View All</button>
+          </div>
+          ${occupiedRooms.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">No rooms are currently occupied.</p>` : occupiedRooms.map(r => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:14px; border:1px solid var(--border); border-radius:10px; margin-bottom:10px;">
+              <div style="display:flex; align-items:center; gap:16px;">
+                <div class="stat-icon blue" style="width:40px; height:40px; border-radius:8px;">${icon('rooms')}</div>
+                <div>
+                  <h4 style="font-size:15px; margin-bottom:4px;">${r.name}</h4>
+                  <p style="font-size:12px; color:var(--ink-soft);">${r.building} · ${r.floor}</p>
+                </div>
+              </div>
+              <div style="text-align:right;">
+                <div class="status-pill occupied" style="margin-bottom:6px;"><span class="dot"></span>In Use</div>
+                <div style="font-size:12px; font-weight:700;">By ${SERVER_USERS.find(u => u.id === r.teacher_id)?.name || 'Teacher'}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head"><h3>Quick Actions</h3></div>
+          <div class="quick-actions">
+            <button class="btn-sm primary" style="flex-direction:column; height:85px; gap:8px;" onclick="goTab('rooms')">
+              <div style="font-size:20px;">${icon('rooms')}</div>
+              Manage Rooms
+            </button>
+            <button class="btn-sm" style="flex-direction:column; height:85px; gap:8px;" onclick="goTab('users')">
+              <div style="font-size:20px; color:var(--ink-soft);">${icon('users')}</div>
+              Manage Users
+            </button>
+            <button class="btn-sm" style="flex-direction:column; height:85px; gap:8px;" onclick="goTab('reports')">
+              <div style="font-size:20px; color:var(--ink-soft);">${icon('calendar')}</div>
+              View Reports
+            </button>
+            <button class="btn-sm" style="flex-direction:column; height:85px; gap:8px;" onclick="goTab('approvals')">
+              <div style="font-size:20px; color:var(--ink-soft);">${icon('check')}</div>
+              Approvals
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Recent Activity</h3></div>
+          <div class="timeline">
+            ${recentLogs.length === 0 ? `<p class="hint">No recent activity.</p>` : recentLogs.map(l => `
+              <div class="timeline-item">
+                <div class="timeline-dot ${l.action === 'check-in' ? 'in' : 'out'}">
+                  ${icon(l.action === 'check-in' ? 'check' : 'arrowRight')}
+                </div>
+                <div class="timeline-content">
+                  <div class="timeline-title"><strong>${l.teacher_name}</strong> ${l.action === 'check-in' ? 'checked into' : 'left'} <strong>${l.room_name}</strong></div>
+                  <div class="timeline-time">${timeAgo(l.timestamp)}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTeacherDashboard(){
+  const mine = myOccupiedRoom();
+  const myUpcoming = RESERVATIONS.filter(r => String(r.teacher_id) === String(CURRENT_USER.id) && r.status === 'approved' && new Date(r.start_time) >= new Date()).slice(0,3);
+  const pendingFollowers = FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'pending').length;
+  const myFollowers = FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'accepted');
+
+  return `
+    <div class="welcome-banner">
+      <div>
+        <h2>Welcome back, ${CURRENT_USER.name}</h2>
+        <p>You have ${myUpcoming.length} reservations scheduled for today.</p>
+      </div>
+      <div style="font-size:48px; opacity:0.15; color:#fff;">${icon('calendar')}</div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-icon red">${icon('status')}</div>
+        <div class="stat-content">
+          <div class="label">Current Status</div>
+          <div class="value" style="font-size:20px;">${mine ? mine.name : 'Vacant'}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">${icon('calendar')}</div>
+        <div class="stat-content">
+          <div class="label">Upcoming Classes</div>
+          <div class="value">${myUpcoming.length}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Follower Requests</div>
+          <div class="value" style="color:var(--pending);">${pendingFollowers}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Total Followers</div>
+          <div class="value">${myFollowers.length}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-col">
+        ${mine ? `
+        <div class="card" style="border-left:4px solid var(--occupied);">
+          <div class="row-between" style="margin-bottom:16px;">
+            <div>
+              <h3 style="font-size:20px; color:var(--ink); margin-bottom:4px;">Currently in ${mine.name}</h3>
+              <p style="color:var(--ink-soft); font-size:14px;">${mine.building} · ${mine.floor}</p>
+            </div>
+            <button class="btn-sm danger" onclick="goTab('scan')">Scan to Checkout</button>
+          </div>
+        </div>` : `
+        <div class="card" style="border-left:4px solid var(--vacant);">
+          <div class="row-between" style="margin-bottom:16px;">
+            <div>
+              <h3 style="font-size:20px; color:var(--ink); margin-bottom:4px;">Not Checked In</h3>
+              <p style="color:var(--ink-soft); font-size:14px;">You are not currently in a room.</p>
+            </div>
+            <button class="btn-sm primary" onclick="goTab('scan')">Scan to Check In</button>
+          </div>
+        </div>`}
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Today's Agenda</h3>
+            <span class="status-pill vacant"><span class="dot"></span>Live Data</span>
+          </div>
+          
+          ${myUpcoming.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">No upcoming reservations.</p>` : myUpcoming.map(r => `
+            <div class="agenda-item">
+              <div class="agenda-time">
+                <strong>${r.start_time.split(' ')[1].substring(0,5)}</strong>
+                <span>${new Date(r.start_time).getHours() >= 12 ? 'PM' : 'AM'}</span>
+              </div>
+              <div class="agenda-details">
+                <h4>${r.room_name}</h4>
+                <p>Until ${r.end_time.split(' ')[1].substring(0,5)} · Reserved</p>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head"><h3>Quick Actions</h3></div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <button class="btn-sm primary" style="justify-content:flex-start; padding:16px;" onclick="goTab('scan')">
+              <div style="font-size:20px; margin-right:8px;">${icon('status')}</div>
+              <div style="text-align:left; flex:1;">
+                <div>Scan QR Code</div>
+                <div style="font-size:11px; font-weight:400; opacity:0.8; margin-top:2px;">Check in or out of a room</div>
+              </div>
+            </button>
+            <button class="btn-sm" style="justify-content:flex-start; padding:16px;" onclick="goTab('followers')">
+              <div style="font-size:20px; margin-right:8px; color:var(--ink-soft);">${icon('users')}</div>
+              <div style="text-align:left; flex:1;">
+                <div>Manage Followers</div>
+                <div style="font-size:11px; font-weight:400; color:var(--ink-soft); margin-top:2px;">${pendingFollowers} pending requests</div>
+              </div>
+            </button>
+            <button class="btn-sm" style="justify-content:flex-start; padding:16px;" onclick="goTab('status')">
+              <div style="font-size:20px; margin-right:8px; color:var(--ink-soft);">${icon('calendar')}</div>
+              <div style="text-align:left; flex:1;">
+                <div>View Room Schedule</div>
+                <div style="font-size:11px; font-weight:400; color:var(--ink-soft); margin-top:2px;">See all campus schedules</div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderStudentDashboard(){
+  const myFollows = FOLLOWS.filter(f => f.student_id === CURRENT_USER.id);
+  const accepted = myFollows.filter(f => f.status === 'accepted');
+  const pending = myFollows.filter(f => f.status === 'pending');
+  
+  return `
+    <div class="welcome-banner">
+      <div>
+        <h2>Hello, ${CURRENT_USER.name}</h2>
+        <p>Here is what your teachers are up to right now.</p>
+      </div>
+      <div style="font-size:48px; opacity:0.15; color:#fff;">${icon('users')}</div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-icon green">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Teachers Followed</div>
+          <div class="value">${accepted.length}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">${icon('search')}</div>
+        <div class="stat-content">
+          <div class="label">Pending Requests</div>
+          <div class="value" style="color:var(--pending);">${pending.length}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">${icon('building')}</div>
+        <div class="stat-content">
+          <div class="label">Teachers Active Now</div>
+          <div class="value">${accepted.filter(f => ROOMS.some(r => r.teacher_id === f.teacher_id && r.status === 'occupied')).length}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head">
+            <h3>Live Teacher Status</h3>
+            <button class="btn-sm primary" onclick="goTab('search')">Find Teachers</button>
+          </div>
+          
+          ${accepted.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">You aren't following anyone yet.</p>` : accepted.map(f => {
+            const room = ROOMS.find(r => r.teacher_id === f.teacher_id && r.status === 'occupied');
+            return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:14px; border:1px solid var(--border); border-radius:10px; margin-bottom:10px;">
+              <div style="display:flex; align-items:center; gap:16px;">
+                <div class="avatar" style="background:#EEF2FF; color:var(--forest); width:48px; height:48px; font-size:18px;">${initials(f.teacher_name)}</div>
+                <div>
+                  <h4 style="font-size:16px; margin-bottom:4px;">${f.teacher_name}</h4>
+                  ${room ? `<p style="font-size:13px; color:var(--forest); font-weight:700;">Currently in ${room.name} (${room.building})</p>` : `<p style="font-size:13px; color:var(--ink-soft); font-weight:700;">Not in a room right now</p>`}
+                </div>
+              </div>
+              <span class="status-pill ${room ? 'occupied' : 'vacant'}">
+                <span class="dot"></span>${room ? 'In Class' : 'Vacant'}
+              </span>
+            </div>
+            `;
+          }).join('')}
+
+          ${pending.length > 0 ? `
+            <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:20px;">
+              <h4 style="font-size:14px; color:var(--ink-soft); margin-bottom:12px;">Pending Requests</h4>
+              ${pending.map(f => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:#fafbfc; border-radius:12px; margin-bottom:8px;">
+                  <div style="font-weight:700; font-size:14px;">${f.teacher_name}</div>
+                  <span class="status-pill" style="background:#fff; border:1px solid var(--border); color:var(--ink-soft);">Waiting for approval</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head"><h3>Teacher Activity Feed</h3></div>
+          <div class="timeline">
+            ${(() => {
+              const followedTeacherIds = accepted.map(f => f.teacher_id);
+              const recentFollowedLogs = ACTIVITY_LOGS.filter(log => followedTeacherIds.includes(log.teacher_id)).slice(0, 5);
+              if(recentFollowedLogs.length === 0) return `<p class="hint">No recent activity from your teachers.</p>`;
+              return recentFollowedLogs.map(l => `
+                <div class="timeline-item">
+                  <div class="timeline-dot ${l.action === 'check-in' ? 'in' : 'out'}">
+                    ${icon(l.action === 'check-in' ? 'check' : 'arrowRight')}
+                  </div>
+                  <div class="timeline-content">
+                    <div class="timeline-title"><strong>${l.teacher_name}</strong> ${l.action === 'check-in' ? 'checked into' : 'left'} <strong>${l.room_name}</strong></div>
+                    <div class="timeline-time">${timeAgo(l.timestamp)}</div>
+                  </div>
+                </div>
+              `).join('');
+            })()}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 /* ===================== ADMIN ===================== */
