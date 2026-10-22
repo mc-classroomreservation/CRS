@@ -535,7 +535,7 @@ function icon(name){
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths[name] || paths.rooms}</svg>`;
 }
 function navIcon(tab){
-  return icon({ rooms:'rooms', users:'users', reservations:'calendar', reports:'report', status:'door', scan:'scan', followers:'follow', search:'search', follows:'follow', info:'info', schedules:'calendar', approvals:'check' }[tab]);
+  return icon({ dashboard:'dashboard', rooms:'rooms', users:'users', reservations:'calendar', reports:'report', status:'door', scan:'scan', followers:'follow', search:'search', follows:'follow', info:'info', schedules:'calendar', approvals:'check' }[tab]);
 }
 function queueToast(message, tone='success', title='Updated'){
   VIEW.toast = { message, tone, title };
