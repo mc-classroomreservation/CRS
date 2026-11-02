@@ -1,0 +1,2905 @@
+const API_BASE = 'https://classroom-reservation-backend.onrender.com';
+/* ===================== SERVER DATA ===================== */
+let ROOMS = [];
+let SERVER_USERS = [];
+let RESERVATIONS = [];
+let ACTIVITY_LOGS = [];
+let FOLLOWS = [];
+let DATA_STATUS = { users:true };
+async function loadActivityLogsFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/activity-logs');
+    if(!response.ok) throw new Error('Failed to load activity logs');
+    ACTIVITY_LOGS = await response.json();
+  }catch(error){
+    console.error('Error loading activity logs:', error);
+  }
+}
+let CURRENT_USER = null;
+let VIEW = { screen:'login', tab:null, err:'', notice:null, toast:null, confirm:null };
+let SCAN = { active:false, stream:null, raf:null, reserveRoomId:null };
+let AUTH_MODE = 'login'; // 'login' | 'register' | 'verify'
+let REG_ROLE = 'student';
+let PENDING_VERIFY_USERNAME = '';
+let REMEMBER_ME = false;
+try{ REMEMBER_ME = localStorage.getItem('crs-remember-me') === '1'; }catch(e){}
+let LAST_USERNAME = '';
+try{ LAST_USERNAME = localStorage.getItem('crs-last-username') || ''; }catch(e){}
+const REMEMBER_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_KEY = 'crs-workspace-session-v1';
+let PENDING_CONFIRMATION = null;
+let TOAST_TIMER = null;
+let LOADING = {
+  active: true,
+  title: 'Preparing your workspace',
+  detail: 'A focused place for every classroom.'
+};
+
+function uid(prefix){ return prefix + Math.random().toString(36).slice(2,8); }
+function initials(name){ return (name||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
+function timeAgo(ts){
+  if(!ts) return '';
+  const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if(s<60) return 'just now';
+  const m = Math.floor(s/60); if(m<60) return m+'m ago';
+  const h = Math.floor(m/60); if(h<24) return h+'h ago';
+  return Math.floor(h/24)+'d ago';
+}
+function dateForInput(date = new Date()){
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0,10);
+}
+function icon(name){
+  const paths = {
+    dashboard:'<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>',
+    building:'<rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01"/>',
+    arrowRight:'<path d="M5 12h14M12 5l7 7-7 7"/>',
+    rooms:'<path d="M3 21h18"/><path d="M5 21V6l7-3 7 3v15"/><path d="M9 21v-6h6v6"/><path d="M8 9h.01M16 9h.01"/>',
+    users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    calendar:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/>',
+    report:'<path d="M4 19V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14"/><path d="M8 17v-4M12 17V9M16 17v-6"/><path d="M3 21h18"/>',
+    room:'<path d="M3 21h18"/><path d="M5 21V6l7-3 7 3v15"/><path d="M9 21v-6h6v6"/>',
+    scan:'<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
+    follow:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M16 11h6"/>',
+    search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+    plus:'<path d="M12 5v14M5 12h14"/>',
+    qr:'<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M15 15h2v2h-2zM19 15h2v6h-2M15 19h2v2h-2"/>',
+    trash:'<path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6"/>',
+    check:'<path d="m5 12 4 4L19 6"/>',
+    close:'<path d="M6 6l12 12M18 6 6 18"/>',
+    camera:'<path d="M4 7h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3"/>',
+    info:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="8" r="1" fill="currentColor" stroke="none"/><path d="M12 12v5"/>',
+    image:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/>',
+    save:'<path d="M5 3h12l3 3v15H4V4a1 1 0 0 1 1-1Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/>',
+    door:'<rect x="5" y="3" width="14" height="18" rx="1"/><circle cx="14" cy="12" r="1" fill="currentColor" stroke="none"/>',
+    logout:'<path d="M10 17l5-5-5-5M15 12H3"/><path d="M21 19V5a2 2 0 0 0-2-2h-6"/>',
+    eye:'<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/>',
+    eyeoff:'<path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.86 21.86 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.86 21.86 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/>'
+  };
+  return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths[name] || paths.rooms}</svg>`;
+}
+function navIcon(tab){
+  return icon({ dashboard:'dashboard', rooms:'rooms', users:'users', reservations:'calendar', reports:'report', status:'door', scan:'scan', followers:'follow', search:'search', follows:'follow', info:'info', schedules:'calendar', approvals:'check' }[tab]);
+}
+function queueToast(message, tone='success', title='Updated'){
+  VIEW.toast = { message, tone, title };
+  window.clearTimeout(TOAST_TIMER);
+  TOAST_TIMER = window.setTimeout(()=>{
+    if(VIEW.toast && VIEW.toast.message === message){
+      VIEW.toast = null;
+      render();
+    }
+  }, 3600);
+}
+function dismissToast(){
+  window.clearTimeout(TOAST_TIMER);
+  VIEW.toast = null;
+  render();
+}
+function notifyUpdate(message, tone='success', title='Updated'){
+  persistWorkspace();
+  queueToast(message, tone, title);
+  render();
+}
+function requestConfirmation({title='Please confirm', message, actionLabel='Confirm', tone='danger'}, action){
+  PENDING_CONFIRMATION = action;
+  VIEW.confirm = { title, message, actionLabel, tone };
+  render();
+}
+function resolveConfirmation(confirmed){
+  const action = PENDING_CONFIRMATION;
+  PENDING_CONFIRMATION = null;
+  VIEW.confirm = null;
+  if(confirmed && typeof action === 'function') action();
+  else render();
+}
+function renderToast(){
+  const toast = VIEW.toast;
+  if(!toast) return '';
+  return `<div class="toast ${toast.tone || ''}" id="app-toast" role="status" aria-live="polite"><div><strong>${toast.title}</strong>${toast.message}</div><button type="button" onclick="dismissToast()" aria-label="Dismiss notification">×</button></div>`;
+}
+function renderConfirmModal(){
+  const confirm = VIEW.confirm;
+  if(!confirm) return '';
+  return `<div class="modal-bg" onclick="if(event.target===this)resolveConfirmation(false)"><div class="modal confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><h3 id="confirm-title">${confirm.title}</h3><p>${confirm.message}</p><div class="confirm-actions"><button class="btn-sm" type="button" onclick="resolveConfirmation(false)">Cancel</button><button class="btn-sm ${confirm.tone==='danger'?'danger':'primary'}" type="button" onclick="resolveConfirmation(true)">${icon(confirm.tone==='danger'?'trash':'check')}${confirm.actionLabel}</button></div></div></div>`;
+}
+function setInlineMessage(id, type, text){
+  const area = document.getElementById(id);
+  if(area) area.innerHTML = `<div class="msg-banner ${type}" role="status">${text}</div>`;
+}
+function escapeAttr(value=''){
+  return String(value).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function currentUserRecord(){
+  return SERVER_USERS.find(user => String(user.id) === String(CURRENT_USER?.id)) || CURRENT_USER;
+}
+function userAvatar(user, className='avatar'){
+  const photo = user?.profile_image;
+  return `<div class="${className}${photo ? ' has-photo' : ''}">${photo ? `<img src="${photo}" alt="${escapeAttr(user.name)}">` : initials(user?.name)}</div>`;
+}
+function profilePhotoContent(user){
+  return user?.profile_image ? `<img src="${user.profile_image}" alt="${escapeAttr(user.name)}">` : `<span>${initials(user?.name)}</span>`;
+}
+let PENDING_PROFILE_IMAGE;
+function previewProfilePicture(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(!file.type.startsWith('image/')){
+    input.value = '';
+    setInlineMessage('profile-message', 'err', 'Choose an image file (JPG, PNG, or WebP).');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onerror = () => setInlineMessage('profile-message', 'err', 'The selected image could not be opened.');
+  reader.onload = event => {
+    const image = new Image();
+    image.onerror = () => setInlineMessage('profile-message', 'err', 'The selected image could not be processed.');
+    image.onload = () => {
+      const maxEdge = 512;
+      const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      PENDING_PROFILE_IMAGE = canvas.toDataURL('image/jpeg', .82);
+      const preview = document.getElementById('profile-photo-preview');
+      if(preview) preview.innerHTML = `<img src="${PENDING_PROFILE_IMAGE}" alt="New profile preview">`;
+      setInlineMessage('profile-message', 'ok', 'Photo ready. Save your information to keep it.');
+    };
+    image.src = event.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function clearProfilePicture(){
+  PENDING_PROFILE_IMAGE = '';
+  const preview = document.getElementById('profile-photo-preview');
+  if(preview) preview.innerHTML = `<span>${initials(CURRENT_USER?.name)}</span>`;
+  setInlineMessage('profile-message', 'warn', 'The photo will be removed when you save your information.');
+}
+function saveProfile(){
+  const user = currentUserRecord();
+  const nameInput = document.getElementById('profile-name');
+  const name = nameInput.value.trim();
+  if(!name){ nameInput.reportValidity(); nameInput.focus(); return; }
+
+  const previousName = user.name;
+  user.name = name;
+  if(user.role === 'student'){
+    const studentId = document.getElementById('profile-student-id');
+    const year = document.getElementById('profile-year');
+    const block = document.getElementById('profile-block');
+    if(!studentId.value.trim() || !year.value.trim() || !block.value.trim()){
+      const firstMissing = [studentId, year, block].find(input => !input.value.trim());
+      firstMissing.reportValidity(); firstMissing.focus(); return;
+    }
+    user.student_id = studentId.value.trim(); user.year = year.value.trim(); user.block = block.value.trim();
+  }
+  if(user.role === 'teacher'){
+    const subject = document.getElementById('profile-subject');
+    if(!subject.value.trim()){ subject.reportValidity(); subject.focus(); return; }
+    user.class_subject = subject.value.trim();
+  }
+  if(PENDING_PROFILE_IMAGE !== undefined) user.profile_image = PENDING_PROFILE_IMAGE;
+
+  if(previousName !== user.name){
+    RESERVATIONS.forEach(item => { if(String(item.teacher_id) === String(user.id)) item.teacher_name = user.name; });
+    ACTIVITY_LOGS.forEach(item => { if(String(item.teacher_id) === String(user.id)) item.teacher_name = user.name; });
+    FOLLOWS.forEach(item => {
+      if(String(item.teacher_id) === String(user.id)) item.teacher_name = user.name;
+      if(String(item.student_id) === String(user.id)) item.student_name = user.name;
+    });
+  }
+  const { password, ...safeUser } = user;
+  CURRENT_USER = safeUser;
+  PENDING_PROFILE_IMAGE = undefined;
+  notifyUpdate('Saved on this device. (Profile details aren\'t stored on the server yet.)', 'success', 'Profile updated');
+}
+
+async function saveProfile(){
+  const user = currentUserRecord();
+  const nameInput = document.getElementById('profile-name');
+  const name = nameInput.value.trim();
+  if(!name){ nameInput.reportValidity(); nameInput.focus(); return; }
+
+  let student_id = user.student_id || null;
+  let course = user.course || null;
+  let year = user.year || null;
+  let block = user.block || null;
+  let class_subject = user.class_subject || null;
+
+  if(user.role === 'student'){
+    const studentIdInput = document.getElementById('profile-student-id');
+    const courseInput = document.getElementById('profile-course');
+    const yearInput = document.getElementById('profile-year');
+    const blockInput = document.getElementById('profile-block');
+     if(!studentIdInput.value.trim() || !courseInput.value.trim() || !yearInput.value.trim() || !blockInput.value.trim()){
+      const firstMissing = [studentIdInput, courseInput, yearInput, blockInput].find(input => !input.value.trim());
+      firstMissing.reportValidity(); firstMissing.focus(); return;
+    }
+    if(!/^\d{6}$/.test(studentIdInput.value.trim())){
+      studentIdInput.setCustomValidity('Student ID must be exactly 6 numbers.');
+      studentIdInput.reportValidity();
+      studentIdInput.setCustomValidity('');
+      studentIdInput.focus();
+      return;
+    }
+    student_id = studentIdInput.value.trim(); course = courseInput.value.trim(); year = yearInput.value.trim(); block = blockInput.value.trim();
+  }
+  if(user.role === 'teacher'){
+    const subjectInput = document.getElementById('profile-subject');
+    if(!subjectInput.value.trim()){ subjectInput.reportValidity(); subjectInput.focus(); return; }
+    class_subject = subjectInput.value.trim();
+  }
+
+  const profile_image = PENDING_PROFILE_IMAGE !== undefined ? PENDING_PROFILE_IMAGE : (user.profile_image || null);
+
+  try{
+    const response = await fetch(`${API_BASE}/api/users/${user.id}/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ name, profile_image, student_id, course, year, block, class_subject })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('profile-message', 'err', data.error || 'Failed to save profile.');
+      return;
+    }
+
+    CURRENT_USER = data.user;
+    PENDING_PROFILE_IMAGE = undefined;
+    await loadUsersFromServer();
+    notifyUpdate('Your profile has been saved.', 'success', 'Profile updated');
+  }catch(error){
+    console.error('SAVE PROFILE ERROR:', error);
+    setInlineMessage('profile-message', 'err', 'Cannot connect to the server.');
+  }
+}
+
+async function loadRoomsFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/rooms');
+    if(!response.ok) throw new Error('Failed to load rooms');
+    ROOMS = await response.json();
+  }catch(error){
+    console.error('Error loading rooms:', error);
+  }
+}
+async function loadReservationsFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/reservations');
+    if(!response.ok) throw new Error('Failed to load reservations');
+    RESERVATIONS = await response.json();
+  }catch(error){
+    console.error('Error loading reservations:', error);
+  }
+}
+async function loadUsersFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/users');
+    if(!response.ok) throw new Error('Failed to load users');
+    SERVER_USERS = await response.json();
+    DATA_STATUS.users = true;
+  }catch(error){
+    console.error('Error loading users:', error);
+    DATA_STATUS.users = false;
+  }
+}
+
+let PENDING_TEACHERS = [];
+let SCHEDULES = [];
+async function loadSchedulesFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/schedules');
+    if(!response.ok) throw new Error('Failed to load schedules');
+    SCHEDULES = await response.json();
+  }catch(error){
+    console.error('Error loading schedules:', error);
+  }
+}
+async function loadPendingTeachersFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/users/pending');
+    if(!response.ok) throw new Error('Failed to load pending teachers');
+    PENDING_TEACHERS = await response.json();
+  }catch(error){
+    console.error('Error loading pending teachers:', error);
+  }
+}
+async function approveTeacher(teacherId, teacherName){
+  requestConfirmation({
+    title:'Approve this teacher?',
+    message:`${teacherName} will be able to sign in once approved.`,
+    actionLabel:'Approve',
+    tone:'primary'
+  }, async () => {
+    try{
+      const response = await fetch(`${API_BASE}/api/users/${teacherId}/approve`, { method: 'PUT' });
+      const data = await response.json();
+      if(!response.ok){
+        queueToast(data.error || 'Failed to approve teacher.', 'error', 'Unable to approve');
+        render();
+        return;
+      }
+      await loadPendingTeachersFromServer();
+      await loadUsersFromServer();
+      notifyUpdate(`${teacherName} can now sign in.`, 'success', 'Teacher approved');
+    }catch(error){
+      console.error('APPROVE TEACHER ERROR:', error);
+      queueToast('Cannot connect to the server.', 'error', 'Unable to approve');
+      render();
+    }
+  });
+}
+async function rejectTeacherSignup(teacherId, teacherName){
+  requestConfirmation({
+    title:'Reject this teacher?',
+    message:`${teacherName} will not be able to sign in.`,
+    actionLabel:'Reject'
+  }, async () => {
+    try{
+      const response = await fetch(`${API_BASE}/api/users/${teacherId}/reject`, { method: 'PUT' });
+      const data = await response.json();
+      if(!response.ok){
+        queueToast(data.error || 'Failed to reject teacher.', 'error', 'Unable to reject');
+        render();
+        return;
+      }
+      await loadPendingTeachersFromServer();
+      notifyUpdate(`${teacherName}'s request was rejected.`, 'success', 'Teacher rejected');
+    }catch(error){
+      console.error('REJECT TEACHER ERROR:', error);
+      queueToast('Cannot connect to the server.', 'error', 'Unable to reject');
+      render();
+    }
+  });
+}
+function renderAdminApprovals(){
+  return `
+    <div class="page-head"><h2>Approvals</h2><p>Review teacher sign-up requests.</p></div>
+    <div class="card teacher-directory">
+      ${PENDING_TEACHERS.length === 0 ? `<div class="empty">No pending teacher requests.</div>` : PENDING_TEACHERS.map(t => `
+        <div class="teacher-list-item">
+          <div class="person-row">${userAvatar(t)}<div><div class="person-name">${t.name}</div><div class="person-sub">@${t.username} · wants to join as a teacher</div></div></div>
+          <div class="action-row">
+            <button class="btn-sm primary" onclick="approveTeacher(${t.id}, '${t.name}')">${icon('check')}Approve</button>
+            <button class="btn-sm danger" onclick="rejectTeacherSignup(${t.id}, '${t.name}')">${icon('close')}Reject</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+async function loadFollowsFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/follows');
+    if(!response.ok) throw new Error('Failed to load follows');
+    FOLLOWS = await response.json();
+  }catch(error){
+    console.error('Error loading follows:', error);
+  }
+}
+
+/* ===================== RENDER ROOT ===================== */
+function doLogout(){
+  requestConfirmation({
+    title:'Log out?',
+    message:'You\'ll need to Sign in again to access your workspace.',
+    actionLabel:'Log out'
+  }, performLogout);
+}
+function performLogout(){
+  stopPolling();
+  stopScanner();
+  PENDING_PROFILE_IMAGE = undefined;
+
+  CURRENT_USER = null;
+  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);
+
+  VIEW = {
+    screen: 'login',
+    tab: null,
+    err: '',
+    notice: null
+  };
+
+  render();
+}
+function defaultTab(role){
+  return 'dashboard';
+}
+function allowedTabs(role){
+  return role === 'admin'
+     ? ['dashboard','rooms','users','approvals','reports','info']
+    : role === 'teacher'
+      ? ['dashboard','status','reservations','scan','followers','info']
+      : ['dashboard','search','follows','info'];
+}
+function persistWorkspace(){
+  if(!CURRENT_USER) return;
+  const payload = JSON.stringify({
+    user: CURRENT_USER,
+    tab: VIEW.tab,
+    searchQ: VIEW.searchQ || '',
+    expiresAt: REMEMBER_ME ? (Date.now() + REMEMBER_DURATION_MS) : null
+  });
+  if(REMEMBER_ME){
+    localStorage.setItem(SESSION_KEY, payload);
+    sessionStorage.removeItem(SESSION_KEY);
+  }else{
+    sessionStorage.setItem(SESSION_KEY, payload);
+    localStorage.removeItem(SESSION_KEY);
+  }
+}
+function getPersistedWorkspace(){
+  try{
+    const fromLocal = localStorage.getItem(SESSION_KEY);
+    const raw = fromLocal || sessionStorage.getItem(SESSION_KEY);
+    if(!raw) return null;
+    const saved = JSON.parse(raw);
+    if(!saved || !saved.user || !saved.user.id || !saved.user.role) return null;
+    if(fromLocal && saved.expiresAt && Date.now() > saved.expiresAt){
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return saved;
+  }catch(error){
+    sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_KEY);
+    return null;
+  }
+}
+async function loadWorkspaceData(){
+  await Promise.all([
+    loadRoomsFromServer(),
+    loadUsersFromServer(),
+    loadReservationsFromServer(),
+    loadActivityLogsFromServer(),
+    loadFollowsFromServer(),
+    loadPendingTeachersFromServer(),
+    loadSchedulesFromServer()
+  ]);
+}
+function setLoading(active, title, detail){
+  LOADING = {
+    active,
+    title: title || 'Preparing your workspace',
+    detail: detail || 'A focused place for every classroom.'
+  };
+}
+function renderLoading(){
+  return `
+    <div class="loading-screen" role="status" aria-live="polite">
+      <div class="loading-card">
+        <div class="loader-orbit"><div class="loader-core"></div></div>
+        <div class="eyebrow">Classroom reservation</div>
+        <h2>${LOADING.title}</h2>
+        <p>${LOADING.detail}</p>
+        <div class="loading-bars" aria-hidden="true"><i></i><i></i><i></i></div>
+      </div>
+    </div>`;
+}
+function render(){
+  const app = document.getElementById('app');
+  try{
+    if(LOADING.active){ app.innerHTML = renderLoading(); return; }
+    if(!CURRENT_USER){ app.innerHTML = renderLogin(); return; }
+    app.innerHTML = renderShell();
+    afterRenderHooks();
+  }catch(e){
+    console.error(e);
+    app.innerHTML = `<div style="max-width:520px;margin:60px auto;padding:24px;font-family:sans-serif;">
+      <h2 style="font-family:serif;">Something went wrong</h2>
+      <p style="color:#6B6355;">${(e && e.message) ? e.message : 'Unknown error'}</p>
+      <button onclick="location.reload()" style="margin-top:12px;padding:8px 14px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer;">Reload</button>
+    </div>`;
+  }
+}
+
+function afterRenderHooks(){
+  if(VIEW.screen==='admin' && VIEW.tab==='rooms'){ /* nothing async needed here */ }
+  if(VIEW.qrModalRoomId){ drawQR('qr-canvas-target', VIEW.qrModalRoomId); }
+  if(SCAN.active){ setupCameraIfNeeded(); }
+}
+document.addEventListener('keydown', event => {
+  if(event.key !== 'Escape') return;
+  if(VIEW.confirm){ resolveConfirmation(false); return; }
+  if(VIEW.qrModalRoomId){ closeQR(); return; }
+  if(SCAN.active){ stopScanner(); render(); }
+});
+
+/* ===================== LOGIN / REGISTER ===================== */
+function renderLogin(){
+  const isLogin = AUTH_MODE==='login';
+  const isVerify = AUTH_MODE==='verify';
+  const titleText = isLogin ? 'Welcome back' : isVerify ? 'Verify your email' : 'Create your account';
+  const subText = isLogin ? 'Sign in to start your session.' : isVerify ? 'Enter the code we sent you.' : 'Join your classroom workspace in a few steps.';
+  return `
+  <div class="login-shell">
+    <aside class="brand-panel">
+      <div class="brand-line">
+        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+        <div>
+          <div class="brand-name">Classroom Reservation</div>
+          <div class="brand-school">MC SPACE MANAGEMENT</div>
+        </div>
+      </div>
+      <div class="brand-copy">
+        <div class="eyebrow">Campus operations</div>
+        <h1>Every classroom, clear and accounted for.</h1>
+        <p>Reserve rooms, check in at the door, and keep the campus schedule simple for everyone.</p>
+        <div class="stats-row" aria-label="System features">
+          <div class="mini-stat"><strong>Live</strong><span>availability</span></div>
+          <div class="mini-stat"><strong>QR</strong><span>check-in</span></div>
+          <div class="mini-stat"><strong>Easy</strong><span>reservations</span></div>
+        </div>
+      </div>
+    </aside>
+    <main class="login-panel">
+      <div class="login-form">
+        <div class="mobile-brand">
+          <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+          <div><div class="brand-name">Classroom Reservation</div><div class="brand-school">MC SPACE MANAGEMENT</div></div>
+        </div>
+
+        <div class="login-card">
+          <div class="plate">
+            <div class="plate-num">CRS</div>
+            <div>
+              <div class="eyebrow">Campus operations</div>
+              <div class="plate-title">${titleText}</div>
+              <div class="plate-sub">${subText}</div>
+            </div>
+          </div>
+          ${VIEW.err ? `<div class="err">${VIEW.err}</div>` : ''}
+          ${VIEW.notice ? `<div class="msg-banner ${VIEW.notice.type}">${VIEW.notice.text}</div>` : ''}
+          ${isVerify ? renderVerifyForm() : isLogin ? renderLoginForm() : renderRegisterForm()}
+          ${!isVerify ? `
+          <div class="switch-line">
+            ${isLogin ? `New here? <a onclick="switchAuth('register')">Sign up</a>`
+                      : `Already have an account? <a onclick="switchAuth('login')">Sign in</a>`}
+          </div>` : ''}
+        </div>  
+      </div>
+    </main>
+  </div>`;
+}
+function renderLoginForm(){
+  return `
+    <form onsubmit="event.preventDefault();doLogin()">
+     <div class="field"><label>Institutional / Email</label><input id="li-user" value="${escapeAttr(LAST_USERNAME)}" placeholder="e.g. juandelacruz@mabinicolleges.edu.ph" autocomplete="username" autocapitalize="none" autocorrect="off" required/></div>
+    <div class="field">
+      <label>Password</label>
+      <div style="position:relative;">
+        <input id="li-pass" type="password" placeholder="••••••••" autocomplete="current-password" required style="padding-right:42px;"/>
+         <button type="button" id="li-pass-toggle" onclick="toggleLoginPasswordVisibility()" aria-label="Show password" style="position:absolute;right:2px;top:50%;transform:translateY(-50%);border:0;background:transparent;padding:8px;cursor:pointer;color:var(--ink-soft);display:grid;place-items:center;">${icon('eyeoff')}</button>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12.5px;color:var(--ink-soft);cursor:pointer;">
+      <input type="checkbox" id="li-remember" style="width:auto;min-height:0;" ${REMEMBER_ME ? 'checked' : ''}/> Remember me
+    </label>
+    <button class="btn-primary" type="submit">Sign in to workspace</button>
+</form>
+  `;
+}
+function renderRegisterForm(){
+  return `
+    <form onsubmit="event.preventDefault();doRegister()">
+    <div class="field">
+      <label>I am a</label>
+      <div class="role-pick">
+        <button type="button" class="${REG_ROLE==='student'?'active':''}" onclick="setRegRole('student')">Student</button>
+        <button type="button" class="${REG_ROLE==='teacher'?'active':''}" onclick="setRegRole('teacher')">Teacher</button>
+      </div>
+    </div>
+    <div class="field"><label>Complete Name${errMark('name')}</label><input id="rg-name" value="${escapeAttr(REG_DRAFT.name)}" placeholder="Juan Dela Cruz" autocomplete="name" required/></div>
+    <div class="field"><label>${REG_ROLE==='student' ? 'Institutional Email' : 'Email'}${errMark('email')}</label><input id="rg-email" type="email" value="${escapeAttr(REG_DRAFT.email)}" placeholder="${REG_ROLE==='student' ? 'e.g. juandelacruz@mabinicolleges.edu.ph' : 'e.g. juan.delacruz@email.com'}" autocomplete="email" autocapitalize="none" autocorrect="off" required/></div>
+    ${REG_ROLE==='teacher' ? `<div class="field"><label>Class Subject${errMark('subject')}</label><input id="rg-subject" value="${escapeAttr(REG_DRAFT.subject)}" placeholder="e.g. Mathematics" required/></div>` : ''}
+    <div class="field"><label>Password${errMark('password')}</label><input id="rg-pass" type="password" value="${escapeAttr(REG_DRAFT.password)}" placeholder="Create a password" autocomplete="new-password" required/></div>
+    <div class="field"><label>Confirm Password${errMark('confirmPassword')}</label><input id="rg-pass-confirm" type="password" value="${escapeAttr(REG_DRAFT.confirmPassword)}" placeholder="Re-enter your password" autocomplete="new-password" required/></div>
+    <button class="btn-primary" type="submit">${REG_ROLE==='student' ? 'Send verification code' : 'Create account'}</button>
+    </form>
+  `;
+}
+function renderVerifyForm(){
+  return `
+    <form onsubmit="event.preventDefault();doVerifyCode()">
+    <p class="hint" style="margin-bottom:14px;">We sent a 6-digit code to <strong>${escapeAttr(PENDING_VERIFY_USERNAME||'')}</strong>. Enter it below to finish creating your account.</p>
+    <div class="field"><label>Verification code</label><input id="vf-code" placeholder="123456" inputmode="numeric" maxlength="6" required/></div>
+    <div id="verify-message" aria-live="polite"></div>
+    <button class="btn-primary" type="submit">Verify and sign in</button>
+    </form>
+    <div class="switch-line">Didn't get a code? <a onclick="doResendCode()">Resend code</a></div>
+    <div class="switch-line"><a onclick="switchAuth('register')">Back to sign up</a></div>
+  `;
+}
+async function doResendCode(){
+  try{
+    const response = await fetch(API_BASE + '/api/resend-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: PENDING_VERIFY_USERNAME })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('verify-message', 'err', data.error || 'Failed to resend code.');
+      return;
+    }
+    setInlineMessage('verify-message', 'ok', 'A new code has been sent to your email.');
+  }catch(error){
+    console.error('RESEND CODE ERROR:', error);
+    setInlineMessage('verify-message', 'err', 'Cannot connect to the server.');
+  }
+}
+
+function toggleLoginPasswordVisibility(){
+  const input = document.getElementById('li-pass');
+  const btn = document.getElementById('li-pass-toggle');
+  if(!input || !btn) return;
+  const willShow = input.type === 'password';
+  input.type = willShow ? 'text' : 'password';
+  btn.innerHTML = icon(willShow ? 'eye' : 'eyeoff');
+  btn.setAttribute('aria-label', willShow ? 'Hide password' : 'Show password');
+}
+
+function switchAuth(mode){ AUTH_MODE=mode; VIEW.err=''; VIEW.errField=[]; VIEW.notice=null; render(); }
+function captureRegDraft(){
+  const nameInput = document.getElementById('rg-name');
+  const emailInput = document.getElementById('rg-email');
+  const passInput = document.getElementById('rg-pass');
+  const passConfirmInput = document.getElementById('rg-pass-confirm');
+  const subjectInput = document.getElementById('rg-subject');
+  if(nameInput) REG_DRAFT.name = nameInput.value;
+  if(emailInput) REG_DRAFT.email = emailInput.value;
+  if(passInput) REG_DRAFT.password = passInput.value;
+  if(passConfirmInput) REG_DRAFT.confirmPassword = passConfirmInput.value;
+  if(subjectInput) REG_DRAFT.subject = subjectInput.value;
+}
+function guessErrorField(message){
+  const m = (message||'').toLowerCase();
+  if(m.includes('do not match')) return ['password','confirmPassword'];
+  if(m.includes('password')) return ['password'];
+  if(m.includes('email')) return ['email'];
+  if(m.includes('subject')) return ['subject'];
+  if(m.includes('name')) return ['name'];
+  return [];
+}
+function errMark(key){
+  return (VIEW.errField||[]).includes(key) ? ' <span style="color:var(--occupied);">*</span>' : '';
+}
+let REG_DRAFT = { name:'', email:'', password:'', confirmPassword:'', subject:'' };
+function setRegRole(r){
+  const nameInput = document.getElementById('rg-name');
+  const emailInput = document.getElementById('rg-email');
+  const passInput = document.getElementById('rg-pass');
+  const passConfirmInput = document.getElementById('rg-pass-confirm');
+  const subjectInput = document.getElementById('rg-subject');
+  if(nameInput) REG_DRAFT.name = nameInput.value;
+  if(emailInput) REG_DRAFT.email = emailInput.value;
+  if(passInput) REG_DRAFT.password = passInput.value;
+  if(passConfirmInput) REG_DRAFT.confirmPassword = passConfirmInput.value;
+  if(subjectInput) REG_DRAFT.subject = subjectInput.value;
+  REG_ROLE = r;
+  render();
+}
+
+async function doLogin(){
+  const u = document.getElementById('li-user').value.trim();
+  const p = document.getElementById('li-pass').value;
+  const remember = document.getElementById('li-remember').checked;
+
+  if(!u || !p){
+    VIEW.err = 'Please enter your username and password.';
+    render();
+    return;
+  }
+
+  REMEMBER_ME = remember;
+  try{
+    localStorage.setItem('crs-remember-me', remember ? '1' : '0');
+    localStorage.setItem('crs-last-username', u);
+  }catch(e){}
+
+  try{
+    const response = await fetch(API_BASE + '/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    const data = await response.json();
+
+    if(!response.ok){
+      VIEW.err = data.error || 'Incorrect username or password.';
+      render();
+      return;
+    }
+
+    CURRENT_USER = data.user;
+    setLoading(true, 'Opening your workspace', 'Signing you in.');
+    render();
+    await Promise.all([loadWorkspaceData(), wait(450)]);
+
+    setLoading(false);
+    VIEW = {
+      screen: CURRENT_USER.role,
+      tab: defaultTab(CURRENT_USER.role),
+      err: ''
+    };
+
+    persistWorkspace();
+    render();
+    startPolling();
+
+  }catch(error){
+    console.error(error);
+    VIEW.err = 'Cannot connect to the server.';
+    render();
+  }
+}
+
+async function doRegister(){
+
+    const name = document.getElementById('rg-name').value.trim();
+    const email = document.getElementById('rg-email').value.trim();
+    const p = document.getElementById('rg-pass').value;
+    const pConfirm = document.getElementById('rg-pass-confirm').value;
+
+    captureRegDraft();
+
+    if(!name || !email || !p || !pConfirm){
+        VIEW.err = 'Please fill in every field.';
+        VIEW.errField = [!name?'name':null, !email?'email':null, !p?'password':null, !pConfirm?'confirmPassword':null].filter(Boolean);
+        render();
+        return;
+    }
+
+    if(p.length < 8){
+        VIEW.err = 'Password must be at least 8 characters.';
+        VIEW.errField = ['password'];
+        render();
+        return;
+    }
+
+    if(p !== pConfirm){
+        VIEW.err = 'Passwords do not match.';
+        VIEW.errField = ['password','confirmPassword'];
+        render();
+        return;
+    }
+
+    try {
+
+        if(REG_ROLE === 'student'){
+            setLoading(true, 'Verifying your account', 'Sending a verification code to your email.');
+            render();
+
+            const response = await fetch(API_BASE + '/api/register/student', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email, password: p, confirmPassword: pConfirm })
+            });
+            const data = await response.json();
+
+            setLoading(false);
+
+            if(!response.ok){
+                VIEW.err = data.error || 'Registration failed.';
+                VIEW.errField = guessErrorField(VIEW.err);
+                render();
+                return;
+            }
+
+            PENDING_VERIFY_USERNAME = data.username;
+            AUTH_MODE = 'verify';
+            VIEW.err = '';
+            VIEW.errField = [];
+            render();
+            return;
+        }
+
+        const subject = document.getElementById('rg-subject').value.trim();
+        if(!subject){
+            VIEW.err = 'Please fill in every field.';
+            VIEW.errField = ['subject'];
+            render();
+            return;
+        }
+
+        setLoading(true, 'Creating your workspace', 'Setting up your account.');
+        render();
+
+        const response = await fetch(API_BASE + '/api/register/teacher', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, password: p, confirmPassword: pConfirm, class_subject: subject })
+        });
+        const data = await response.json();
+
+        setLoading(false);
+
+        if(!response.ok){
+            VIEW.err = data.error || 'Registration failed.';
+            VIEW.errField = guessErrorField(VIEW.err);
+            render();
+            return;
+        }
+
+        AUTH_MODE = 'login';
+        VIEW.err = '';
+        VIEW.errField = [];
+        VIEW.notice = { type:'ok', text: data.message };
+        render();
+
+    } catch(error) {
+
+        console.error('REGISTRATION ERROR:', error);
+
+        setLoading(false);
+        VIEW.err = 'Cannot connect to the server.';
+        render();
+    }
+}
+
+async function doVerifyCode(){
+  const code = document.getElementById('vf-code').value.trim();
+  if(!code){
+    VIEW.err = 'Please enter the code.';
+    render();
+    return;
+  }
+
+  try{
+    setLoading(true, 'Verifying your account', 'Checking your code.');
+    render();
+
+    const response = await fetch(API_BASE + '/api/verify-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: PENDING_VERIFY_USERNAME, code })
+    });
+    const data = await response.json();
+
+    if(!response.ok){
+      setLoading(false);
+      VIEW.err = data.error || 'Verification failed.';
+      render();
+      return;
+    }
+
+    CURRENT_USER = data.user;
+    AUTH_MODE = 'login';
+    await Promise.all([loadWorkspaceData(), wait(450)]);
+
+    setLoading(false);
+    VIEW = {
+      screen: CURRENT_USER.role,
+      tab: defaultTab(CURRENT_USER.role),
+      err: ''
+    };
+
+    persistWorkspace();
+    render();
+    startPolling();
+
+  }catch(error){
+    console.error('VERIFY CODE ERROR:', error);
+    setLoading(false);
+    VIEW.err = 'Cannot connect to the server.';
+    render();
+  }
+}
+/* ===================== SHELL ===================== */
+function renderShell(){
+  const nav = CURRENT_USER.role==='admin'
+  ? [['dashboard','Dashboard'],['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reports','Reports'],['info','Profile']]
+    : CURRENT_USER.role==='teacher'
+? [['dashboard','Dashboard'],['status','My Room'],['reservations','Reservations'],['scan','Scan QR'],['followers','Followers'],['info','Profile']]
+    : [['dashboard','Dashboard'],['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
+  const vacantRooms = ROOMS.filter(room => room.status === 'vacant').length;
+  return `
+    <div class="shell">
+    <aside class="side">
+      <div class="side-logo">
+        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+        <div>
+          <div class="brand-name">Classroom Reservation</div>
+          <div class="brand-school">MC SPACE MANAGEMENT</div>
+        </div>
+      </div>
+
+      <nav class="side-nav" aria-label="Main navigation">
+        ${nav.map(([key,label])=>`<button class="${VIEW.tab===key?'active':''}" onclick="goTab('${key}')">${navIcon(key)}<span>${label}</span>${navBadgeCount(key) > 0 ? `<span class="side-badge">${navBadgeCount(key)}</span>` : ''}</button>`).join('')}
+      </nav>
+
+      <div class="side-foot">
+        ${CURRENT_USER.role !== 'student' ? `<button type="button" class="live${vacantRooms === 0 ? ' none' : ''}" onclick="goToVacantRooms()"><span class="live-dot"></span><strong>${vacantRooms === 0 ? 'No vacancy' : vacantRooms + ' vacant'}</strong></button>` : ''}
+        <button type="button" class="side-user" onclick="goTab('info')">
+          ${userAvatar(CURRENT_USER, 'avatar')}
+          <div class="side-user-name">${CURRENT_USER.name}<span>${CURRENT_USER.role}</span></div>
+        </button>
+        <button type="button" class="side-logout" onclick="doLogout()" aria-label="Sign out" title="Sign out">${icon('logout')}<span>Sign out</span></button>
+      </div>
+    </aside>
+
+    <main class="main">${renderMain()}</main>
+  </div>
+    ${VIEW.qrModalRoomId ? renderQRModal() : ''}
+  ${VIEW.personModalId ? renderPersonModal() : ''}
+  ${VIEW.scheduleModal ? renderScheduleModal() : ''}
+  ${VIEW.checkinModal ? renderCheckinTimeModal() : ''}
+  ${VIEW.confirm ? renderConfirmModal() : ''}
+  ${VIEW.toast ? renderToast() : ''}
+  `;
+}
+
+function goToVacantRooms(){
+  const targetTab = CURRENT_USER.role === 'admin' ? 'rooms' : CURRENT_USER.role === 'teacher' ? 'status' : null;
+  if(!targetTab) return;
+  goTab(targetTab);
+  setTimeout(() => {
+    document.getElementById('vacant-rooms-section')?.scrollIntoView({ behavior:'smooth', block:'start' });
+  }, 60);
+}
+
+function getSeenSet(key){
+  try{
+    const raw = localStorage.getItem(`crs-seen-${key}-${CURRENT_USER.id}`);
+    return new Set(JSON.parse(raw) || []);
+  }catch(error){
+    return new Set();
+  }
+}
+function markSeen(key, ids){
+  if(!ids.length) return;
+  try{
+    const current = getSeenSet(key);
+    ids.forEach(id => current.add(id));
+    localStorage.setItem(`crs-seen-${key}-${CURRENT_USER.id}`, JSON.stringify([...current]));
+  }catch(error){
+    console.warn('Could not save notification state.', error);
+  }
+}
+function pendingReservationCount(){
+  return RESERVATIONS.filter(r => r.status === 'pending').length;
+}
+
+function pendingFollowRequestCount(){
+  return FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'pending').length;
+}
+
+function unseenReservationUpdates(){
+  const mine = RESERVATIONS.filter(r => String(r.teacher_id) === String(CURRENT_USER.id) && (r.status === 'approved' || r.status === 'cancelled'));
+  const seen = getSeenSet('reservations');
+  return mine.filter(r => !seen.has(r.id));
+}
+function unseenFollowedCheckins(){
+  const followedTeacherIds = FOLLOWS.filter(f => f.student_id === CURRENT_USER.id && f.status === 'accepted').map(f => f.teacher_id);
+  const logs = ACTIVITY_LOGS.filter(l => l.action === 'check-in' && followedTeacherIds.includes(l.teacher_id));
+  const seen = getSeenSet('checkins');
+  return logs.filter(l => !seen.has(l.id));
+}
+
+function unseenAcceptedFollows(){
+  const mine = FOLLOWS.filter(f => f.student_id === CURRENT_USER.id && f.status === 'accepted');
+  const seen = getSeenSet('accepted-follows');
+  return mine.filter(f => !seen.has(f.id));
+}
+
+function navBadgeCount(tabKey){
+  if(CURRENT_USER.role === 'admin' && tabKey === 'approvals') return PENDING_TEACHERS.length;
+  if(CURRENT_USER.role === 'teacher' && tabKey === 'followers') return pendingFollowRequestCount();
+  if(CURRENT_USER.role === 'student' && tabKey === 'follows') return unseenFollowedCheckins().length + unseenAcceptedFollows().length;
+  return 0;
+}
+
+function goTab(tab){
+  stopScanner();
+  if(tab !== 'info') PENDING_PROFILE_IMAGE = undefined;
+  VIEW.tab=tab;
+  VIEW.notice=null;
+  VIEW.declinedNotice = null;
+
+  if(tab === 'follows' && CURRENT_USER.role === 'student'){
+    markSeen('checkins', unseenFollowedCheckins().map(l => l.id));
+    markSeen('accepted-follows', unseenAcceptedFollows().map(f => f.id));
+  }
+  persistWorkspace();
+  render();
+}
+
+function renderMain(){
+  if(VIEW.tab === 'dashboard'){
+    if(CURRENT_USER.role === 'admin') return renderAdminDashboard();
+    if(CURRENT_USER.role === 'teacher') return renderTeacherDashboard();
+    return renderStudentDashboard();
+  }
+  if(VIEW.tab === 'info') return renderInformation();
+  if(CURRENT_USER.role==='admin') return renderAdmin();
+  if(CURRENT_USER.role==='teacher') return renderTeacher();
+  return renderStudent();
+}
+
+function renderInformation(){
+  const user = currentUserRecord();
+  const roleLabel = user.role === 'admin' ? 'Administrator' : user.role === 'teacher' ? 'Teacher' : 'Student';
+  const previewImage = PENDING_PROFILE_IMAGE !== undefined ? PENDING_PROFILE_IMAGE : user.profile_image;
+  const photoPreviewContent = previewImage ? `<img src="${previewImage}" alt="${escapeAttr(user.name)}">` : `<span>${initials(user.name)}</span>`;
+  const details = user.role === 'student'
+    ? `
+      <div class="inline-form">
+        <div class="field"><label for="profile-student-id">Student ID</label><input id="profile-student-id" value="${escapeAttr(user.student_id || '')}" placeholder="e.g. 202020" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" title="Must be exactly 6 numbers" required></div>
+        <div class="field"><label for="profile-course">Course</label><input id="profile-course" value="${escapeAttr(user.course || '')}" placeholder="e.g. BS Computer Science" required></div>
+      </div>
+      <div class="inline-form">
+        <div class="field"><label for="profile-year">Year</label><input id="profile-year" value="${escapeAttr(user.year || '')}" placeholder="e.g. 2nd Year" required></div>
+        <div class="field"><label for="profile-block">Block</label><input id="profile-block" value="${escapeAttr(user.block || '')}" placeholder="e.g. A" autocapitalize="characters" required></div>
+      </div>`
+    : user.role === 'teacher'
+      ? `<div class="field"><label for="profile-subject">Class subject</label><input id="profile-subject" value="${escapeAttr(user.class_subject || '')}" placeholder="e.g. Mathematics" required></div>`
+      : '';
+
+  return `
+    <div class="page-head"><h2>Profile</h2><p>Keep your profile details up to date.</p></div>
+    <form class="card profile-card" onsubmit="event.preventDefault();saveProfile()">
+      <div class="profile-layout">
+        <div class="profile-photo-group">
+          <div class="profile-photo" id="profile-photo-preview">${photoPreviewContent}</div>
+          <label class="photo-picker" for="profile-picture">${icon('image')}Change photo</label>
+          <input class="photo-input" id="profile-picture" type="file" accept="image/png,image/jpeg,image/webp" onchange="previewProfilePicture(this)">
+          <button class="btn-sm" type="button" onclick="clearProfilePicture()">${icon('close')}Remove photo</button>
+
+        </div>
+        <div class="profile-form">
+          <div class="eyebrow">${roleLabel} profile</div>
+          <div class="field"><label for="profile-name">Name</label><input id="profile-name" value="${escapeAttr(user.name || '')}" autocomplete="name" required></div>
+          ${details}
+          <div id="profile-message" aria-live="polite"></div>
+          <button class="btn-primary" type="submit">${icon('save')}Save information</button>
+        </div>
+      </div>
+    </form>
+    <div class="card" style="max-width:760px;margin-top:16px;">
+      <div class="eyebrow" style="margin-bottom:14px;">Change password</div>
+      <form onsubmit="event.preventDefault();changePassword()">
+        <div class="field"><label for="pw-current">Current password</label><input id="pw-current" type="password" autocomplete="current-password" required></div>
+        <div class="field"><label for="pw-new">New password</label><input id="pw-new" type="password" autocomplete="new-password" required></div>
+        <div class="field"><label for="pw-confirm">Confirm new password</label><input id="pw-confirm" type="password" autocomplete="new-password" required></div>
+        <div id="password-message" aria-live="polite"></div>
+        <button class="btn-primary" type="submit" style="width:auto;min-width:160px;">${icon('save')}Change password</button>
+      </form>
+    </div>`;
+}
+async function changePassword(){
+  const user = currentUserRecord();
+  const currentInput = document.getElementById('pw-current');
+  const newInput = document.getElementById('pw-new');
+  const confirmInput = document.getElementById('pw-confirm');
+
+  if(newInput.value !== confirmInput.value){
+    setInlineMessage('password-message', 'err', 'New passwords do not match.');
+    return;
+  }
+
+  try{
+    const response = await fetch(`${API_BASE}/api/users/${user.id}/password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: currentInput.value, newPassword: newInput.value })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('password-message', 'err', data.error || 'Failed to change password.');
+      return;
+    }
+    currentInput.value = ''; newInput.value = ''; confirmInput.value = '';
+    setInlineMessage('password-message', 'ok', 'Password changed successfully.');
+  }catch(error){
+    console.error('CHANGE PASSWORD ERROR:', error);
+    setInlineMessage('password-message', 'err', 'Cannot connect to the server.');
+  }
+}
+
+/* ===================== DASHBOARDS ===================== */
+function renderAdminDashboard(){
+  const vacant = ROOMS.filter(r => r.status === 'vacant').length;
+  const occupied = ROOMS.filter(r => r.status === 'occupied').length;
+  const total = ROOMS.length;
+  const occupiedPercent = total === 0 ? 0 : Math.round((occupied / total) * 100);
+
+  const occupiedRooms = ROOMS.filter(r => r.status === 'occupied');
+  const recentLogs = ACTIVITY_LOGS.slice(0, 4);
+
+  return `
+    <div class="welcome-banner">
+      <div>
+        <h2>Good morning, ${CURRENT_USER.name}</h2>
+        <p>Here is what's happening on campus today.</p>
+      </div>
+      <div style="font-size:48px; opacity:0.15; color:#fff;">${icon('building')}</div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-icon blue">${icon('building')}</div>
+        <div class="stat-content">
+          <div class="label">Total Rooms</div>
+          <div class="value">${total}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">${icon('check')}</div>
+        <div class="stat-content">
+          <div class="label">Available Now</div>
+          <div class="value" style="color:var(--vacant);">${vacant}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Occupied Now</div>
+          <div class="value" style="color:var(--occupied);">${occupied}</div>
+        </div>
+      </div>
+      <div class="stat-card" style="cursor:pointer;" onclick="goTab('approvals')">
+        <div class="stat-icon orange">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Pending Approvals</div>
+          <div class="value" style="color:var(--pending);">${PENDING_TEACHERS.length}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head">
+            <h3>Campus Occupancy</h3>
+            <span class="status-pill vacant"><span class="dot"></span>Live Data</span>
+          </div>
+          <div class="donut-wrap">
+            <div class="donut" style="background: conic-gradient(var(--occupied) 0% ${occupiedPercent}%, var(--vacant) ${occupiedPercent}% 100%);">
+              <div class="donut-inner">
+                <strong>${occupiedPercent}%</strong>
+                <span>Occupied</span>
+              </div>
+            </div>
+            <div class="legend">
+              <div class="legend-item"><div class="legend-dot" style="background:var(--occupied);"></div> Occupied Rooms (${occupied})</div>
+              <div class="legend-item"><div class="legend-dot" style="background:var(--vacant);"></div> Available Rooms (${vacant})</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Live Room Status</h3>
+            <button class="btn-sm" onclick="goTab('rooms')">View All</button>
+          </div>
+          ${occupiedRooms.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">No rooms are currently occupied.</p>` : occupiedRooms.map(r => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:14px; border:1px solid var(--border); border-radius:10px; margin-bottom:10px;">
+              <div style="display:flex; align-items:center; gap:16px;">
+                <div class="stat-icon blue" style="width:40px; height:40px; border-radius:8px;">${icon('rooms')}</div>
+                <div>
+                  <h4 style="font-size:15px; margin-bottom:4px;">${r.name}</h4>
+                  <p style="font-size:12px; color:var(--ink-soft);">${r.building} · ${r.floor}</p>
+                </div>
+              </div>
+              <div style="text-align:right;">
+                <div class="status-pill occupied" style="margin-bottom:6px;"><span class="dot"></span>In Use</div>
+                <div style="font-size:12px; font-weight:700;">By ${SERVER_USERS.find(u => u.id === r.teacher_id)?.name || 'Teacher'}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head"><h3>Quick Actions</h3></div>
+          <div class="quick-actions">
+            <button class="btn-sm primary" style="flex-direction:column; height:85px; gap:8px;" onclick="goTab('rooms')">
+              <div style="font-size:20px;">${icon('rooms')}</div>
+              Manage Rooms
+            </button>
+            <button class="btn-sm" style="flex-direction:column; height:85px; gap:8px;" onclick="goTab('users')">
+              <div style="font-size:20px; color:var(--ink-soft);">${icon('users')}</div>
+              Manage Users
+            </button>
+            <button class="btn-sm" style="flex-direction:column; height:85px; gap:8px;" onclick="goTab('reports')">
+              <div style="font-size:20px; color:var(--ink-soft);">${icon('calendar')}</div>
+              View Reports
+            </button>
+            <button class="btn-sm" style="flex-direction:column; height:85px; gap:8px;" onclick="goTab('approvals')">
+              <div style="font-size:20px; color:var(--ink-soft);">${icon('check')}</div>
+              Approvals
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Recent Activity</h3></div>
+          <div class="timeline">
+            ${recentLogs.length === 0 ? `<p class="hint">No recent activity.</p>` : recentLogs.map(l => `
+              <div class="timeline-item">
+                <div class="timeline-dot ${l.action === 'check-in' ? 'in' : 'out'}">
+                  ${icon(l.action === 'check-in' ? 'check' : 'arrowRight')}
+                </div>
+                <div class="timeline-content">
+                  <div class="timeline-title"><strong>${l.teacher_name}</strong> ${l.action === 'check-in' ? 'checked into' : 'left'} <strong>${l.room_name}</strong></div>
+                  <div class="timeline-time">${timeAgo(l.timestamp)}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTeacherDashboard(){
+  const mine = myOccupiedRoom();
+  const myUpcoming = RESERVATIONS.filter(r => String(r.teacher_id) === String(CURRENT_USER.id) && r.status === 'approved' && new Date(r.start_time) >= new Date()).slice(0,3);
+  const pendingFollowers = FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'pending').length;
+  const myFollowers = FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'accepted');
+
+  return `
+    <div class="welcome-banner">
+      <div>
+        <h2>Welcome back, ${CURRENT_USER.name}</h2>
+        <p>You have ${myUpcoming.length} reservations scheduled for today.</p>
+      </div>
+      <div style="font-size:48px; opacity:0.15; color:#fff;">${icon('calendar')}</div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-icon red">${icon('status')}</div>
+        <div class="stat-content">
+          <div class="label">Current Status</div>
+          <div class="value" style="font-size:20px;">${mine ? mine.name : 'Vacant'}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">${icon('calendar')}</div>
+        <div class="stat-content">
+          <div class="label">Upcoming Classes</div>
+          <div class="value">${myUpcoming.length}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Follower Requests</div>
+          <div class="value" style="color:var(--pending);">${pendingFollowers}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Total Followers</div>
+          <div class="value">${myFollowers.length}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-col">
+        ${mine ? `
+        <div class="card" style="border-left:4px solid var(--occupied);">
+          <div class="row-between" style="margin-bottom:16px;">
+            <div>
+              <h3 style="font-size:20px; color:var(--ink); margin-bottom:4px;">Currently in ${mine.name}</h3>
+              <p style="color:var(--ink-soft); font-size:14px;">${mine.building} · ${mine.floor}</p>
+            </div>
+            <button class="btn-sm danger" onclick="goTab('scan')">Scan to Checkout</button>
+          </div>
+        </div>` : `
+        <div class="card" style="border-left:4px solid var(--vacant);">
+          <div class="row-between" style="margin-bottom:16px;">
+            <div>
+              <h3 style="font-size:20px; color:var(--ink); margin-bottom:4px;">Not Checked In</h3>
+              <p style="color:var(--ink-soft); font-size:14px;">You are not currently in a room.</p>
+            </div>
+            <button class="btn-sm primary" onclick="goTab('scan')">Scan to Check In</button>
+          </div>
+        </div>`}
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Today's Agenda</h3>
+            <span class="status-pill vacant"><span class="dot"></span>Live Data</span>
+          </div>
+          
+          ${myUpcoming.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">No upcoming reservations.</p>` : myUpcoming.map(r => `
+            <div class="agenda-item">
+              <div class="agenda-time">
+                <strong>${r.start_time.split(' ')[1].substring(0,5)}</strong>
+                <span>${new Date(r.start_time).getHours() >= 12 ? 'PM' : 'AM'}</span>
+              </div>
+              <div class="agenda-details">
+                <h4>${r.room_name}</h4>
+                <p>Until ${r.end_time.split(' ')[1].substring(0,5)} · Reserved</p>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head"><h3>Quick Actions</h3></div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <button class="btn-sm primary" style="justify-content:flex-start; padding:16px;" onclick="goTab('scan')">
+              <div style="font-size:20px; margin-right:8px;">${icon('status')}</div>
+              <div style="text-align:left; flex:1;">
+                <div>Scan QR Code</div>
+                <div style="font-size:11px; font-weight:400; opacity:0.8; margin-top:2px;">Check in or out of a room</div>
+              </div>
+            </button>
+            <button class="btn-sm" style="justify-content:flex-start; padding:16px;" onclick="goTab('followers')">
+              <div style="font-size:20px; margin-right:8px; color:var(--ink-soft);">${icon('users')}</div>
+              <div style="text-align:left; flex:1;">
+                <div>Manage Followers</div>
+                <div style="font-size:11px; font-weight:400; color:var(--ink-soft); margin-top:2px;">${pendingFollowers} pending requests</div>
+              </div>
+            </button>
+            <button class="btn-sm" style="justify-content:flex-start; padding:16px;" onclick="goTab('status')">
+              <div style="font-size:20px; margin-right:8px; color:var(--ink-soft);">${icon('calendar')}</div>
+              <div style="text-align:left; flex:1;">
+                <div>View Room Schedule</div>
+                <div style="font-size:11px; font-weight:400; color:var(--ink-soft); margin-top:2px;">See all campus schedules</div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderStudentDashboard(){
+  const myFollows = FOLLOWS.filter(f => f.student_id === CURRENT_USER.id);
+  const accepted = myFollows.filter(f => f.status === 'accepted');
+  const pending = myFollows.filter(f => f.status === 'pending');
+  
+  return `
+    <div class="welcome-banner">
+      <div>
+        <h2>Hello, ${CURRENT_USER.name}</h2>
+        <p>Here is what your teachers are up to right now.</p>
+      </div>
+      <div style="font-size:48px; opacity:0.15; color:#fff;">${icon('users')}</div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-icon green">${icon('users')}</div>
+        <div class="stat-content">
+          <div class="label">Teachers Followed</div>
+          <div class="value">${accepted.length}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange">${icon('search')}</div>
+        <div class="stat-content">
+          <div class="label">Pending Requests</div>
+          <div class="value" style="color:var(--pending);">${pending.length}</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">${icon('building')}</div>
+        <div class="stat-content">
+          <div class="label">Teachers Active Now</div>
+          <div class="value">${accepted.filter(f => ROOMS.some(r => r.teacher_id === f.teacher_id && r.status === 'occupied')).length}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head">
+            <h3>Live Teacher Status</h3>
+            <button class="btn-sm primary" onclick="goTab('search')">Find Teachers</button>
+          </div>
+          
+          ${accepted.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">You aren't following anyone yet.</p>` : accepted.map(f => {
+            const room = ROOMS.find(r => r.teacher_id === f.teacher_id && r.status === 'occupied');
+            return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:14px; border:1px solid var(--border); border-radius:10px; margin-bottom:10px;">
+              <div style="display:flex; align-items:center; gap:16px;">
+                <div class="avatar" style="background:#EEF2FF; color:var(--forest); width:48px; height:48px; font-size:18px;">${initials(f.teacher_name)}</div>
+                <div>
+                  <h4 style="font-size:16px; margin-bottom:4px;">${f.teacher_name}</h4>
+                  ${room ? `<p style="font-size:13px; color:var(--forest); font-weight:700;">Currently in ${room.name} (${room.building})</p>` : `<p style="font-size:13px; color:var(--ink-soft); font-weight:700;">Not in a room right now</p>`}
+                </div>
+              </div>
+              <span class="status-pill ${room ? 'occupied' : 'vacant'}">
+                <span class="dot"></span>${room ? 'In Class' : 'Vacant'}
+              </span>
+            </div>
+            `;
+          }).join('')}
+
+          ${pending.length > 0 ? `
+            <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:20px;">
+              <h4 style="font-size:14px; color:var(--ink-soft); margin-bottom:12px;">Pending Requests</h4>
+              ${pending.map(f => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:#fafbfc; border-radius:12px; margin-bottom:8px;">
+                  <div style="font-weight:700; font-size:14px;">${f.teacher_name}</div>
+                  <span class="status-pill" style="background:#fff; border:1px solid var(--border); color:var(--ink-soft);">Waiting for approval</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head"><h3>Teacher Activity Feed</h3></div>
+          <div class="timeline">
+            ${(() => {
+              const followedTeacherIds = accepted.map(f => f.teacher_id);
+              const recentFollowedLogs = ACTIVITY_LOGS.filter(log => followedTeacherIds.includes(log.teacher_id)).slice(0, 5);
+              if(recentFollowedLogs.length === 0) return `<p class="hint">No recent activity from your teachers.</p>`;
+              return recentFollowedLogs.map(l => `
+                <div class="timeline-item">
+                  <div class="timeline-dot ${l.action === 'check-in' ? 'in' : 'out'}">
+                    ${icon(l.action === 'check-in' ? 'check' : 'arrowRight')}
+                  </div>
+                  <div class="timeline-content">
+                    <div class="timeline-title"><strong>${l.teacher_name}</strong> ${l.action === 'check-in' ? 'checked into' : 'left'} <strong>${l.room_name}</strong></div>
+                    <div class="timeline-time">${timeAgo(l.timestamp)}</div>
+                  </div>
+                </div>
+              `).join('');
+            })()}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ===================== ADMIN ===================== */
+function renderAdmin(){
+
+  if(VIEW.tab==='rooms') return renderAdminRooms();
+
+  if(VIEW.tab==='users') return renderAdminUsers();
+
+  if(VIEW.tab==='approvals') return renderAdminApprovals();
+
+  return renderAdminReports();
+
+}
+function renderAdminRooms(){
+  const rooms = ROOMS;
+  const vacantRooms = rooms.filter(room => room.status === 'vacant').length;
+  const occupiedRooms = rooms.filter(room => room.status === 'occupied').length;
+
+  return `
+  <div class="page-head">
+    <h2>Manage Rooms</h2>
+    <p>Add rooms and print their QR codes for the door.</p>
+  </div>
+
+  <div class="overview" aria-label="Room summary">
+    <div class="overview-item"><span class="overview-label">All rooms</span><strong class="overview-value">${rooms.length}</strong></div>
+    <div class="overview-item available"><span class="overview-label">Available</span><strong class="overview-value">${vacantRooms}</strong></div>
+    <div class="overview-item in-use"><span class="overview-label">In use</span><strong class="overview-value">${occupiedRooms}</strong></div>
+  </div>
+
+  <form class="card inline-form" onsubmit="event.preventDefault();addRoom()">
+      <div class="field">
+        <label>Room name</label>
+        <input id="rm-name" placeholder="Room 303" required/>
+      </div>
+
+      <div class="field">
+        <label>Building</label>
+        <input id="rm-bldg" placeholder="Main Building"/>
+      </div>
+
+      <div class="field">
+        <label>Floor</label>
+        <input id="rm-floor" placeholder="3rd Floor"/>
+      </div>
+
+      <button class="btn-sm primary" type="submit">
+  ${icon('plus')}Add room
+</button>
+  </form>
+
+    ${
+    rooms.length === 0
+      ? `<div class="empty">No rooms yet. Add your first room above.</div>`
+      : `
+        ${renderScheduleGrid(true)}
+        <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
+        <div class="room-list">
+          ${rooms.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : rooms.filter(r=>r.status!=='occupied').map(r => { const scheduled = isRoomFixedScheduledNow(r.id); return `
+            <div class="room-item">
+              <div class="row-between">
+                <div class="rname">${r.name}</div>
+                <span class="badge" style="${scheduled ? 'background:#E2E2E2;color:#545454;' : 'background:var(--vacant-bg);color:var(--vacant);'}">${scheduled ? 'Scheduled now' : 'Vacant'}</span>
+              </div>
+              <div class="rloc">${r.building} · ${r.floor}</div>
+              <div style="display:flex;gap:6px;margin-top:10px;">
+                <button class="btn-sm" onclick="openQR('${r.id}')">${icon('qr')}View QR</button>
+                <button class="btn-sm danger" onclick="deleteRoom('${r.id}')">${icon('trash')}Delete</button>
+              </div>
+            </div>
+          `; }).join('')}
+        </div>
+
+        <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Occupied rooms</h3></div>
+        <div class="room-list">
+          ${rooms.filter(r=>r.status==='occupied').length===0 ? `<div class="empty">No occupied rooms right now.</div>` : rooms.filter(r=>r.status==='occupied').map(r => `
+            <div class="room-item">
+              <div class="row-between">
+                <div class="rname">${r.name}</div>
+                <span class="badge occupied">Occupied</span>
+              </div>
+              <div class="rloc">${r.building} · ${r.floor}</div>
+              <div class="hint">In use by ${SERVER_USERS.find(u => String(u.id) === String(r.teacher_id))?.name || 'Unknown teacher'}</div>
+              <div style="display:flex;gap:6px;margin-top:10px;">
+                <button class="btn-sm" onclick="openQR('${r.id}')">${icon('qr')}View QR</button>
+                <button class="btn-sm danger" onclick="deleteRoom('${r.id}')">${icon('trash')}Delete</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `
+  }
+  `;
+}
+
+async function addRoom(){
+  const nameInput = document.getElementById('rm-name');
+  const name = nameInput.value.trim();
+  const bldg = document.getElementById('rm-bldg').value.trim();
+  const floor = document.getElementById('rm-floor').value.trim();
+
+  if(!name){
+    nameInput.reportValidity();
+    nameInput.focus();
+    return;
+  }
+
+  const roomCode = 'R' + Date.now();
+
+  try{
+    const response = await fetch(API_BASE + '/api/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_code: roomCode, name, building: bldg || null, floor: floor || null })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      queueToast(data.error || 'Failed to add room.', 'error', 'Unable to add room');
+      render();
+      return;
+    }
+    await loadRoomsFromServer();
+    notifyUpdate('The room is ready for a QR code.', 'success', 'Room added');
+  }catch(error){
+    console.error('ADD ROOM ERROR:', error);
+    queueToast('Cannot connect to the server.', 'error', 'Unable to add room');
+    render();
+  }
+}
+function deleteRoom(id){
+  const room = ROOMS.find(item => String(item.id) === String(id));
+  if(!room) return;
+  requestConfirmation({
+    title:'Delete this room?',
+    message:`${room.name} and its reservations will be removed.`,
+    actionLabel:'Delete room'
+  }, async () => {
+    try{
+      const response = await fetch(`${API_BASE}/api/rooms/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if(!response.ok){
+        queueToast(data.error || 'Failed to delete room.', 'error', 'Unable to delete room');
+        render();
+        return;
+      }
+      await loadRoomsFromServer();
+      notifyUpdate('The room was removed.', 'success', 'Room deleted');
+    }catch(error){
+      console.error('DELETE ROOM ERROR:', error);
+      queueToast('Cannot connect to the server.', 'error', 'Unable to delete room');
+      render();
+    }
+  });
+}
+function openQR(roomId){ VIEW.qrModalRoomId = roomId; render(); }
+function closeQR(){ VIEW.qrModalRoomId = null; render(); }
+function renderQRModal(){
+  const room = ROOMS.find(r => String(r.id) === String(VIEW.qrModalRoomId));
+  if(!room) return '';
+  return `
+  <div class="modal-bg" onclick="if(event.target===this)closeQR()">
+    <div class="modal">
+      <h3>${room.name}</h3>
+      <div class="rid">CODE: CRS-ROOM-${room.room_code}</div>
+      <div id="qrbox"><div id="qr-canvas-target"></div></div>
+      <p style="font-size:12px;color:var(--ink-soft);margin-bottom:16px;">Print this and post it on the classroom door. Teachers scan it to check in and out.</p>
+      <button class="btn-sm primary" onclick="closeQR()" style="width:100%;">Close</button>
+    </div>
+  </div>`;
+}
+
+function openPersonModal(userId){ VIEW.personModalId = userId; render(); }
+function closePersonModal(){ VIEW.personModalId = null; render(); }
+function renderPersonModal(){
+  const person = SERVER_USERS.find(u => String(u.id) === String(VIEW.personModalId));
+  if(!person) return '';
+  const details = [];
+  if(person.username) details.push(['Email', person.username]);
+  if(person.role === 'teacher' && person.class_subject) details.push(['Subject', person.class_subject]);
+  if(person.role === 'student'){
+    if(person.student_id) details.push(['Student ID', person.student_id]);
+    if(person.course) details.push(['Course', person.course]);
+    if(person.year) details.push(['Year', person.year]);
+    if(person.block) details.push(['Block', person.block]);
+  }
+  return `
+  <div class="modal-bg" onclick="if(event.target===this)closePersonModal()">
+    <div class="modal">
+      <div class="profile-photo" style="margin:0 auto;">${profilePhotoContent(person)}</div>
+      <h3 style="margin-top:14px;">${person.name}</h3>
+      <p class="hint" style="text-transform:capitalize;margin-bottom:14px;">${person.role}</p>
+      ${details.length === 0
+        ? `<p class="hint" style="margin-bottom:16px;">No additional information provided yet.</p>`
+        : `<div style="text-align:left;margin-bottom:16px;">${details.map(([label,value])=>`
+            <div style="padding:8px 0;border-bottom:1px solid var(--border);">
+              <div class="hint" style="font-size:11px;text-transform:uppercase;">${label}</div>
+              <div style="font-size:13.5px;margin-top:2px;">${value}</div>
+            </div>
+          `).join('')}</div>`
+      }
+      <button class="btn-sm primary" onclick="closePersonModal()" style="width:100%;">Close</button>
+    </div>
+  </div>`;
+}
+
+function drawQR(targetId, roomId){ 
+  const el = document.getElementById(targetId); 
+  if(!el || typeof QRCode==='undefined') return; 
+
+  const room = ROOMS.find(r => String(r.id) === String(roomId));
+  if(!room) return;
+
+  el.innerHTML=''; 
+
+  new QRCode(el, { 
+    text: 'CRS-ROOM-'+room.room_code, 
+    width:180, 
+    height:180, 
+    colorDark:'#22201B', 
+    colorLight:'#ffffff' 
+  }); 
+}
+function renderAdminUsers(){
+  const users = SERVER_USERS;
+
+  return `
+  <div class="page-head"><h2>Manage Users</h2><p>Everyone registered in the system.</p></div>
+  <div class="card table-card">
+    <table class="responsive-table user-table">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
+      <tbody>
+        ${users.map(u=>`
+          <tr>
+            <td data-label="Name">
+              <div class="person-row" style="cursor:pointer;" onclick="openPersonModal(${u.id})">
+                ${userAvatar(u)}
+                <div class="person-name">${u.name}</div>
+              </div>
+            </td>
+            <td data-label="Username">${u.username}</td>
+            <td data-label="Role" style="text-transform:capitalize;">${u.role}</td>
+            <td data-label="Action">
+              <div class="action-row" style="justify-content:flex-end;">
+                ${u.username!==CURRENT_USER.username
+                  ? `<button class="btn-sm" onclick="openPersonModal(${u.id})">${icon('info')}View info</button><button class="btn-sm danger" onclick="deleteUser('${u.username}')">${icon('trash')}Remove</button>`
+                  : `<span class="hint">You</span>`
+                }
+              </div>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+function deleteUser(username){
+  const user = SERVER_USERS.find(u => u.username === username);
+  if(!user) return;
+  requestConfirmation({
+    title:'Remove this user?',
+    message:`${user.name} will be permanently removed, along with their reservations, follows, and activity history.`,
+    actionLabel:'Remove user'
+  }, async () => {
+    try{
+      const response = await fetch(`${API_BASE}/api/users/${user.id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if(!response.ok){
+        queueToast(data.error || 'Failed to delete user.', 'error', 'Unable to remove user');
+        render();
+        return;
+      }
+      await loadUsersFromServer();
+      await loadRoomsFromServer();
+      await loadReservationsFromServer();
+      await loadFollowsFromServer();
+      await loadActivityLogsFromServer();
+      notifyUpdate('The user and their related records were removed.', 'success', 'User removed');
+    }catch(error){
+      console.error('DELETE USER ERROR:', error);
+      queueToast('Cannot connect to the server.', 'error', 'Unable to remove user');
+      render();
+    }
+  });
+}
+
+function renderAdminReservations(){
+  const activeReservations = RESERVATIONS.filter(r => r.status === 'pending' || r.status === 'approved');
+  return `
+    <div class="page-head">
+      <h2>Reservations</h2>
+      <p>Manage classroom reservation requests.</p>
+    </div>
+
+    <div class="card">
+      <div id="admin-reservation-list" class="reservation-list">
+  ${activeReservations.length === 0
+  ? `<div class="empty">No pending or approved reservations.</div>`
+  : activeReservations
+  .map(r => `
+        <article class="reservation-item">
+          <div class="row-between"><strong class="reservation-title">${r.room_name}</strong></div>
+          <div class="reservation-meta"><strong>${r.teacher_name}</strong> · ${new Date(r.start_time).toLocaleString()} — ${new Date(r.end_time).toLocaleTimeString()}</div>
+          <div class="action-row">
+          ${r.status === 'pending'
+  ? `<button class="btn-sm primary" onclick="approveReservation(${r.id})">
+       ${icon('check')}Approve
+     </button>`
+  : ''
+}
+          ${(r.status === 'pending' || r.status === 'approved')
+  ? `<button class="btn-sm danger" onclick="cancelReservation(${r.id})">
+       ${icon('close')}Cancel
+     </button>`
+  : ''
+}
+          </div>
+        </article>
+      `).join('')
+  }
+</div>
+    </div>
+  `;
+}
+
+function renderAdminReports(){
+  const logs = ACTIVITY_LOGS;
+  return `
+  <div class="page-head"><h2>Reports</h2><p>Check-in and check-out history across all rooms.</p></div>
+  <div class="card table-card">
+    ${logs.length===0 ? `<div class="empty">No activity yet. Once teachers start scanning room codes, it'll show up here.</div>` : `
+    <table class="responsive-table report-table">
+      <thead><tr><th>When</th><th>Teacher</th><th>Room</th><th>Action</th></tr></thead>
+      <tbody>
+        ${logs.map(l=>`
+          <tr>
+            <td data-label="When">${new Date(l.timestamp).toLocaleString()}</td>
+            <td data-label="Teacher">${l.teacher_name}</td>
+            <td data-label="Room">${l.room_name}</td>
+            <td data-label="Action"><span class="badge ${l.action==='check-in'?'occupied':'vacant'}">${l.action==='check-in'?'Checked in':'Checked out'}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`}
+  </div>`;
+}
+
+const DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+function manilaNow(){
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone:'Asia/Manila', year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'
+  }).formatToParts(new Date());
+  const get = t => parts.find(p => p.type === t).value;
+  const date = `${get('year')}-${get('month')}-${get('day')}`;
+  const time = `${get('hour')}:${get('minute')}:${get('second')}`;
+  return { date, time, full:`${date} ${time}` };
+}
+function weekDates(){
+  const now = manilaNow();
+  const base = new Date(now.date + 'T00:00:00Z');
+  const jsDay = base.getUTCDay();
+  const iso = jsDay === 0 ? 7 : jsDay;
+  base.setUTCDate(base.getUTCDate() - (iso - 1));
+  return Array.from({length:7}, (_, i) => {
+    const d = new Date(base);
+    d.setUTCDate(base.getUTCDate() + i);
+    return d.toISOString().slice(0,10);
+  });
+}
+function isRoomFixedScheduledNow(roomId){
+  const now = manilaNow();
+  const jsDay = new Date(now.date + 'T00:00:00Z').getUTCDay();
+  const day = jsDay === 0 ? 7 : jsDay;
+  return SCHEDULES.some(s => s.room_id === roomId && s.day_of_week === day && s.start_time <= now.time && s.end_time > now.time);
+}
+function roomLive(room){
+  const now = manilaNow();
+  if(room.status === 'occupied'){
+    const teacher = SERVER_USERS.find(u => String(u.id) === String(room.teacher_id));
+    const session = RESERVATIONS.find(r => r.room_id === room.id && r.status === 'approved' && String(r.teacher_id) === String(room.teacher_id) && r.start_time <= now.full && r.end_time > now.full);
+    return { state:'occupied', teacher, session };
+  }
+  if(isRoomFixedScheduledNow(room.id)) return { state:'scheduled' };
+  return { state:'vacant' };
+}
+
+function formatTime12(t){
+  if(!t) return '';
+  const [h,m] = t.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2,'0')} ${period}`;
+}
+
+function renderScheduleGrid(editable){
+  const buildings = [...new Set(ROOMS.map(r => r.building).filter(Boolean))].sort();
+  if(!VIEW.scheduleBuilding || !buildings.includes(VIEW.scheduleBuilding)){
+    VIEW.scheduleBuilding = buildings[0] || '';
+  }
+  const buildingRooms = ROOMS.filter(r => r.building === VIEW.scheduleBuilding);
+  const dates = weekDates();
+  const now = manilaNow();
+
+  const roomCell = room => {
+    const live = roomLive(room);
+    let badge = `<span class="badge vacant">Vacant</span>`;
+    let extra = '';
+    if(live.state === 'occupied'){
+      badge = `<span class="badge occupied">Occupied</span>`;
+      const who = live.teacher ? live.teacher.name : 'Unknown teacher';
+      const until = live.session ? ` · until ${formatTime12(live.session.end_time.slice(11))}` : '';
+      extra = `<div class="hint" style="margin-top:4px;">${who}${until}</div>`;
+    }else if(live.state === 'scheduled'){
+      badge = `<span class="badge" style="background:#E2E2E2;color:#545454;">Fixed class now</span>`;
+    }
+    return `<strong>${room.name}</strong><div style="margin-top:6px;">${badge}</div>${extra}`;
+  };
+
+  const dayCell = (room, idx) => {
+    const dow = idx + 1;
+    const date = dates[idx];
+    const fixed = SCHEDULES.filter(s => s.room_id === room.id && s.day_of_week === dow);
+    const booked = RESERVATIONS.filter(r => r.room_id === room.id && r.status === 'approved' && r.start_time.slice(0,10) === date && r.end_time > now.full);
+
+    const overriddenByBooking = s => booked.some(r => r.start_time.slice(11) < s.end_time && r.end_time.slice(11) > s.start_time);
+
+    const fixedBlocks = fixed.filter(s => !overriddenByBooking(s)).map(s => {
+      const timeText = `${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}`;
+      const inner = `<div class="sched-chip-time">${timeText}</div>${s.label ? `<div class="sched-chip-label">${s.label}</div>` : ''}`;
+      return editable
+        ? `<div class="sched-chip" style="background:#E2E2E2;color:#333;cursor:pointer;" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">${inner}</div>`
+        : `<div class="sched-chip" style="background:#E2E2E2;color:#333;">${inner}</div>`;
+    }).join('');
+
+    const bookedBlocks = booked.map(r => {
+      const isLive = room.status === 'occupied' && String(room.teacher_id) === String(r.teacher_id) && r.start_time <= now.full;
+      const colors = isLive ? 'background:var(--occupied-bg);color:#A5343A;' : 'background:var(--pending-bg);color:#A85745;';
+      const timeText = `${formatTime12(r.start_time.slice(11))}&ndash;${formatTime12(r.end_time.slice(11))}`;
+      return `<div class="sched-chip" style="${colors}"><div class="sched-chip-time">${timeText}</div><div class="sched-chip-label">${r.teacher_name}</div></div>`;
+    }).join('');
+
+    const empty = !editable && fixed.length === 0 && booked.length === 0 ? `<span class="hint">&mdash;</span>` : '';
+    const addBtn = editable ? `<button type="button" class="btn-sm" onclick="openScheduleModal(${room.id}, ${dow}, null)">${icon('plus')}Add</button>` : '';
+
+    return `<td style="vertical-align:top;min-width:125px;${date === now.date ? 'background:#F6F9FF;' : ''}"><div style="display:flex;flex-direction:column;gap:4px;">${fixedBlocks}${bookedBlocks}${empty}${addBtn}</div></td>`;
+  };
+
+  return `
+    <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Fixed Schedule</h3></div>
+    ${buildings.length === 0 ? `<div class="empty">No buildings yet.</div>` : `
+    <div class="field" style="max-width:280px;margin-bottom:12px;">
+      <label>Building</label>
+      <select onchange="setScheduleBuilding(this.value)">
+        ${buildings.map(b => `<option value="${escapeAttr(b)}" ${b===VIEW.scheduleBuilding?'selected':''}>${b}</option>`).join('')}
+      </select>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+      <span class="badge" style="background:#E2E2E2;color:#545454;">Fixed class</span>
+      <span class="badge pending">Reserved</span>
+      <span class="badge occupied">Occupied</span>
+    </div>
+
+    <div class="card table-card" style="overflow-x:auto;margin-bottom:26px;">
+      <table style="min-width:920px;">
+        <thead>
+          <tr>
+            <th style="min-width:150px;">Room</th>
+            ${DAY_NAMES.map((d, i) => `<th>${d.slice(0,3)}<br><span style="font-weight:400;letter-spacing:0;">${dates[i].slice(5).replace('-','/')}</span></th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${buildingRooms.length === 0 ? `<tr><td colspan="8"><div class="empty" style="border:0;">No rooms in this building yet.</div></td></tr>` : buildingRooms.map(room => `
+            <tr>
+              <td style="vertical-align:top;">${roomCell(room)}</td>
+              ${DAY_NAMES.map((_, idx) => dayCell(room, idx)).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    `}
+  `;
+}
+function setScheduleBuilding(b){ VIEW.scheduleBuilding = b; render(); }
+
+function openScheduleModal(roomId, dayOfWeek, scheduleId){
+  const room = ROOMS.find(r => r.id === roomId);
+  const existing = scheduleId ? SCHEDULES.find(s => s.id === scheduleId) : null;
+  VIEW.scheduleModal = {
+    roomId,
+    roomName: room ? room.name : '',
+    dayOfWeek,
+    editingId: scheduleId || null,
+    startTime: existing ? existing.start_time.slice(0,5) : '',
+    endTime: existing ? existing.end_time.slice(0,5) : '',
+    label: existing ? (existing.label || '') : ''
+  };
+  render();
+}
+function closeScheduleModal(){ VIEW.scheduleModal = null; render(); }
+function renderScheduleModal(){
+  const m = VIEW.scheduleModal;
+  if(!m) return '';
+  return `
+  <div class="modal-bg" onclick="if(event.target===this)closeScheduleModal()">
+    <div class="modal confirm-card" style="max-width:380px;">
+      <h3>${m.editingId ? 'Edit' : 'Add'} schedule</h3>
+      <p class="hint" style="margin-bottom:14px;">${m.roomName} — ${DAY_NAMES[m.dayOfWeek-1]}</p>
+      <div class="field"><label>Start time</label><input type="time" id="sched-start" value="${m.startTime}"></div>
+      <div class="field"><label>End time</label><input type="time" id="sched-end" value="${m.endTime}"></div>
+      <div class="field"><label>Name of Teacher</label><input id="sched-label" value="${escapeAttr(m.label)}" placeholder="e.g. Math 101"></div>
+      <div id="schedule-message" aria-live="polite"></div>
+      <div class="confirm-actions" style="justify-content:space-between;">
+        ${m.editingId ? `<button class="btn-sm danger" type="button" onclick="deleteScheduleEntry(${m.editingId})">${icon('trash')}Delete</button>` : `<span></span>`}
+        <div style="display:flex;gap:8px;">
+          <button class="btn-sm" type="button" onclick="closeScheduleModal()">Cancel</button>
+          <button class="btn-sm primary" type="button" onclick="saveScheduleEntry()">${icon('save')}Save</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+async function saveScheduleEntry(){
+  const m = VIEW.scheduleModal;
+  const start = document.getElementById('sched-start').value;
+  const end = document.getElementById('sched-end').value;
+  const label = document.getElementById('sched-label').value.trim();
+
+  if(!start || !end){
+    setInlineMessage('schedule-message', 'err', 'Start and end time are required.');
+    return;
+  }
+
+  const payload = { room_id: m.roomId, day_of_week: m.dayOfWeek, start_time: start, end_time: end, label: label || null };
+
+  try{
+    const response = m.editingId
+      ? await fetch(`${API_BASE}/api/schedules/${m.editingId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      : await fetch(`${API_BASE}/api/schedules`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('schedule-message', 'err', data.error || 'Failed to save schedule.');
+      return;
+    }
+
+    await loadSchedulesFromServer();
+    closeScheduleModal();
+    queueToast('Schedule saved.', 'success', 'Saved');
+  }catch(error){
+    console.error('SAVE SCHEDULE ERROR:', error);
+    setInlineMessage('schedule-message', 'err', 'Cannot connect to the server.');
+  }
+}
+async function deleteScheduleEntry(id){
+  try{
+    const response = await fetch(`${API_BASE}/api/schedules/${id}`, { method: 'DELETE' });
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('schedule-message', 'err', data.error || 'Failed to delete schedule.');
+      return;
+    }
+    await loadSchedulesFromServer();
+    closeScheduleModal();
+    queueToast('Schedule entry removed.', 'success', 'Removed');
+  }catch(error){
+    console.error('DELETE SCHEDULE ERROR:', error);
+    setInlineMessage('schedule-message', 'err', 'Cannot connect to the server.');
+  }
+}
+
+/* ===================== TEACHER ===================== */
+function myOccupiedRoom(){
+  return ROOMS.find(r =>
+    r.status === 'occupied' &&
+    String(r.teacher_id) === String(CURRENT_USER.id)
+  );
+}
+
+function renderTeacherReservations(){
+  const myReservations = RESERVATIONS.filter(r => String(r.teacher_id) === String(CURRENT_USER.id) && ['pending','approved'].includes(r.status));
+  const declined = VIEW.declinedNotice || [];
+  return `
+    ${declined.length > 0 ? `<p style="color:var(--occupied);font-size:12.5px;font-weight:700;margin-bottom:6px;">${declined.length === 1 ? `Your reservation for ${declined[0].room_name} was declined.` : `${declined.length} of your reservations were declined.`}</p>` : ''}
+    <div class="page-head">
+      <h2>Reservations</h2>
+      <p>Reserve a classroom for a specific date and time.</p>
+    </div>
+
+    <form class="card" onsubmit="event.preventDefault();createReservation()">
+      <div class="field">
+        <label>Room</label>
+        <select id="reservation-room">
+          ${ROOMS.map(r => `
+            <option value="${r.id}">
+              ${r.name} — ${r.building} · ${r.floor}
+            </option>
+          `).join('')}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="reservation-date" min="${dateForInput()}" value="${dateForInput()}" required>
+      </div>
+
+      <div class="inline-form">
+        <div class="field">
+          <label>Start time</label>
+          <input type="time" id="reservation-start" required>
+        </div>
+
+        <div class="field">
+          <label>End time</label>
+          <input type="time" id="reservation-end" required>
+        </div>
+      </div>
+
+      <button class="btn-sm primary" type="submit">
+        ${icon('calendar')}Reserve room
+      </button>
+    </form>
+
+        <div id="reservation-message"></div>
+
+        <div class="page-head" style="margin-top:28px;">
+      <h2>My Reservations</h2>
+      <p>Your submitted classroom reservations.</p>
+    </div>
+
+        <p class="hint" style="margin-bottom:16px;font-size:13px;">
+      Once you've reserved a room, scan its QR code at your scheduled time to check in.
+      <a onclick="goTab('scan')" style="margin-left:6px;color:var(--brass);font-weight:600;cursor:pointer;">Scan QR</a>
+    </p>
+
+    <div id="reservation-list" class="card">
+  ${myReservations.length === 0
+    ? `<div class="empty">No reservations yet.</div>`
+    : `<div class="reservation-list">${myReservations
+        .map(r => `
+          <article class="reservation-item">
+            <div class="row-between"><strong class="reservation-title">${r.room_name}</strong></div>
+            <div class="reservation-meta">${new Date(r.start_time).toLocaleString()} — ${new Date(r.end_time).toLocaleTimeString()}</div>
+            <div class="action-row">
+${(r.status === 'pending' || r.status === 'approved')
+  ? `<button class="btn-sm danger" onclick="cancelReservation(${r.id})">
+       ${icon('close')}Cancel reservation
+     </button>`
+  : ''
+}
+            </div>
+          </article>
+        `).join('')}</div>`
+  }
+</div>
+  `;
+}
+function focusReservationRoom(){
+  const el = document.getElementById('reservation-room');
+  if(el){ el.scrollIntoView({ behavior:'smooth', block:'center' }); el.focus(); }
+}
+async function createReservation(){
+
+  const roomInput = document.getElementById('reservation-room');
+  const dateInput = document.getElementById('reservation-date');
+  const startInput = document.getElementById('reservation-start');
+  const endInput = document.getElementById('reservation-end');
+  const roomId = roomInput.value;
+  const date = dateInput.value;
+  const start = startInput.value;
+  const end = endInput.value;
+
+  if(!roomId || !date || !start || !end){
+    const firstMissing = [roomInput,dateInput,startInput,endInput].find(input => !input.value);
+    firstMissing?.reportValidity();
+    firstMissing?.focus();
+    return;
+  }
+
+  const startTime = `${date} ${start}:00`;
+  const endTime = `${date} ${end}:00`;
+  if(new Date(endTime) <= new Date(startTime)){
+    endInput.setCustomValidity('End time must be later than the start time.');
+    endInput.reportValidity();
+    endInput.setCustomValidity('');
+    endInput.focus();
+    return;
+  }
+  try{
+    const response = await fetch(API_BASE + '/api/reservations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_id: roomId, teacher_id: CURRENT_USER.id, start_time: startTime, end_time: endTime })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      if(data.scheduleConflict){
+        setInlineMessage('reservation-message', 'warn', `This room has a fixed sched at ${formatTime12(data.schedule_start)} – ${formatTime12(data.schedule_end)}${data.label ? ` (${data.label})` : ''}.<br><button type="button" class="btn-sm" style="margin-top:8px;" onclick="focusReservationRoom()">Find another room and adjust reservation</button>`);
+      }else{
+        setInlineMessage('reservation-message', 'warn', data.error || 'That room is already reserved during this time.');
+      }
+      return;
+    }
+    await loadReservationsFromServer();
+    notifyUpdate('Your reservation is confirmed.', 'success', 'Reservation confirmed');
+  }catch(error){
+    console.error('CREATE RESERVATION ERROR:', error);
+    setInlineMessage('reservation-message', 'err', 'Cannot connect to the server.');
+  }
+}
+
+function cancelReservation(reservationId){
+  const reservation = RESERVATIONS.find(item => Number(item.id) === Number(reservationId));
+  if(!reservation || (CURRENT_USER.role !== 'admin' && reservation.teacher_id !== CURRENT_USER.id)){
+    queueToast('This reservation can no longer be changed.', 'error', 'Unable to cancel');
+    render();
+    return;
+  }
+  requestConfirmation({
+    title:'Cancel this reservation?',
+    message:`${reservation.room_name} will be released for other users.`,
+    actionLabel:'Cancel reservation'
+  }, async () => {
+    try{
+      const response = await fetch(`${API_BASE}/api/reservations/${reservationId}/cancel`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: CURRENT_USER.id, role: CURRENT_USER.role })
+      });
+      const data = await response.json();
+      if(!response.ok){
+        queueToast(data.error || 'Failed to cancel reservation.', 'error', 'Unable to cancel');
+        render();
+        return;
+      }
+      await loadReservationsFromServer();
+      notifyUpdate('The room has been released.', 'success', 'Reservation cancelled');
+    }catch(error){
+      console.error('CANCEL RESERVATION ERROR:', error);
+      queueToast('Cannot connect to the server.', 'error', 'Unable to cancel');
+      render();
+    }
+  });
+}
+
+function approveReservation(reservationId){
+  const reservation = RESERVATIONS.find(item => Number(item.id) === Number(reservationId));
+  if(!reservation || reservation.status !== 'pending'){
+    queueToast('This request is no longer pending.', 'warning', 'Unable to approve');
+    render();
+    return;
+  }
+  requestConfirmation({
+    title:'Approve this reservation?',
+    message:`${reservation.teacher_name} will be notified that ${reservation.room_name} is reserved.`,
+    actionLabel:'Approve',
+    tone:'primary'
+  }, async () => {
+    try{
+      const response = await fetch(`${API_BASE}/api/reservations/${reservationId}/approve`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if(!response.ok){
+        queueToast(data.error || 'Failed to approve reservation.', 'error', 'Unable to approve');
+        render();
+        return;
+      }
+      await loadReservationsFromServer();
+      notifyUpdate('The reservation is now approved.', 'success', 'Reservation approved');
+    }catch(error){
+      console.error('APPROVE RESERVATION ERROR:', error);
+      queueToast('Cannot connect to the server.', 'error', 'Unable to approve');
+      render();
+    }
+  });
+}
+
+function renderTeacherFollowers(){
+  const requests = FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'pending');
+  const followers = FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'accepted');
+  return `
+    <div class="page-head"><h2>Followers</h2><p>Manage students who want to follow you.</p></div>
+    <div class="card teacher-directory">
+      ${requests.length === 0 ? `<div class="empty">No follower requests yet.</div>` : requests.map(f => `
+        <div class="teacher-list-item">
+          <div class="person-row" style="cursor:pointer;" onclick="openPersonModal(${f.student_id})">${userAvatar(SERVER_USERS.find(user => String(user.id) === String(f.student_id)) || { name:f.student_name })}<div><div class="person-name">${f.student_name}</div><div class="person-sub">Wants to follow you</div></div></div>
+          <div class="action-row"><button class="btn-sm primary" onclick="approveFollow(${f.id})">${icon('check')}Approve</button><button class="btn-sm danger" onclick="rejectFollow(${f.id})">${icon('close')}Reject</button></div>
+        </div>`).join('')}
+    </div>
+    <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Your followers</h3></div>
+    <div class="card teacher-directory">
+      ${followers.length === 0 ? `<div class="empty">No one is following you yet.</div>` : followers.map(f => `
+        <div class="teacher-list-item">
+          <div class="person-row" style="cursor:pointer;" onclick="openPersonModal(${f.student_id})">${userAvatar(SERVER_USERS.find(user => String(user.id) === String(f.student_id)) || { name:f.student_name })}<div><div class="person-name">${f.student_name}</div><div class="person-sub">Following you</div></div></div>
+          <div class="action-row" style="justify-content:flex-end;">
+            <button class="btn-sm" onclick="openPersonModal(${f.student_id})">${icon('info')}View info</button>
+            <button class="btn-sm danger" onclick="rejectFollow(${f.id})">${icon('trash')}Remove</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+}
+function renderTeacher(){
+  if(VIEW.tab==='status') return renderTeacherStatus();
+  if(VIEW.tab==='reservations') return renderTeacherReservations();
+  if(VIEW.tab==='scan') return renderTeacherScan();
+  return renderTeacherFollowers();
+}
+function renderTeacherStatus(){
+  const mine = myOccupiedRoom();
+  return `
+  <div class="page-head"><h2>My Room</h2><p>Your current classroom status.</p></div>
+  ${mine ? `
+  <div class="status-card">
+    <div class="status-strip occupied"></div>
+    <div class="status-body">
+      <div class="row-between">
+        <div>
+          <h3>${mine.name}</h3>
+          <p class="hint" style="margin-top:4px;">${mine.building} · ${mine.floor} · currently checked in</p>
+        </div>
+        <span class="badge occupied">Occupied</span>
+      </div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin-top:12px;">Scan this room's QR code again on the door to check out, or use the Scan QR tab.</p>
+    </div>
+  </div>` : `
+  <div class="status-card">
+    <div class="status-strip vacant"></div>
+    <div class="status-body">
+                  <h3>You're not in a room right now</h3>
+            <p style="font-size:12.5px;color:var(--ink-soft);margin-top:8px;">Find, reserve a room and time to get started.</p>
+            <a onclick="goTab('reservations')" style="display:inline-block;margin-top:14px;font-size:13.5px;color:var(--brass);cursor:pointer;font-weight:600;">Reserve room</a>
+    </div>
+  </div>`}
+        ${renderScheduleGrid(false)}
+        <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
+  <div class="room-list">
+    ${ROOMS.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : ROOMS.filter(r=>r.status!=='occupied').map(r=>{ const scheduled = isRoomFixedScheduledNow(r.id); return `
+      <div class="room-item">
+        <div class="row-between"><div class="rname">${r.name}</div><span class="badge" style="${scheduled ? 'background:#E2E2E2;color:#545454;' : 'background:var(--vacant-bg);color:var(--vacant);'}">${scheduled ? 'Scheduled now' : 'Vacant'}</span></div>
+        <div class="rloc">${r.building} · ${r.floor}</div>
+      </div>
+    `; }).join('')}
+  </div>
+  <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Occupied rooms</h3></div>
+  <div class="room-list">
+    ${ROOMS.filter(r=>r.status==='occupied').length===0 ? `<div class="empty">No occupied rooms right now.</div>` : ROOMS.filter(r=>r.status==='occupied').map(r=>`
+      <div class="room-item">
+        <div class="row-between"><div class="rname">${r.name}</div><span class="badge occupied">Occupied</span></div>
+        <div class="rloc">${r.building} · ${r.floor}</div>
+        <div class="hint">${SERVER_USERS.find(u => String(u.id) === String(r.teacher_id))?.name || 'Unknown teacher'}</div>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+function renderTeacherScan(){
+  const mine = myOccupiedRoom();
+  return `
+   <div class="page-head"><h2>Scan Room QR</h2><p>Scan the code on the classroom door to check in — scan it again to check out.</p></div>
+  <p class="hint" style="margin-bottom:14px;">Even if a room has a fixed class scheduled, you can still check in — scan its QR, enter your time, then choose "Room's empty, check in instead."</p>
+  ${VIEW.notice ? `<div class="msg-banner ${VIEW.notice.type}">${VIEW.notice.text}</div>` : ''}
+  <div class="card">
+    <div id="scanner-area">
+      ${SCAN.active ? `
+        <div class="scan-video-wrap">
+          <video id="scan-video" autoplay playsinline muted></video>
+          <div class="scan-frame"></div>
+        </div>
+        <button class="btn-sm" onclick="stopScanner(); render();">${icon('close')}Stop camera</button>
+      ` : `
+        <button class="btn-sm primary" onclick="beginScanner()">${icon('camera')}Open camera to scan</button>
+      `}
+    </div>
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+      <p class="hint" style="margin-bottom:8px;">No camera access? Search for the room instead.</p>
+      <div class="field" style="max-width:340px;margin-bottom:10px;">
+        <input placeholder="Search room by name" value="${VIEW.scanRoomQ||''}" oninput="setScanRoomQ(this.value, this.selectionStart)"/>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;">
+        ${(() => {
+          const q = (VIEW.scanRoomQ||'').toLowerCase();
+          const matches = ROOMS.filter(r => r.name.toLowerCase().includes(q));
+          if(matches.length===0) return `<p class="hint">No rooms match your search.</p>`;
+          return matches.map(r => `
+                        <button type="button" class="btn-sm" style="text-align:left;" onclick="manualScanRoom('${r.room_code}')">
+              ${r.name}<span class="hint" style="margin-left:6px;">${[r.building, r.floor].filter(Boolean).join(' · ')}</span>
+            </button>
+          `).join('');
+        })()}
+      </div>
+    </div>
+  </div>
+  ${mine ? `<p class="hint">Currently checked into <strong>${mine.name}</strong>.</p>` : ''}
+  `;
+}
+function setScanRoomQ(v, pos){
+  VIEW.scanRoomQ = v;
+  render();
+  const input = document.querySelector('#scanner-area')?.parentElement.querySelector('.field input');
+  if(input){ input.focus(); input.setSelectionRange(pos, pos); }
+}
+function manualScanRoom(roomCode){
+  handleScannedCode('CRS-ROOM-' + roomCode);
+}
+function beginScanner(){ SCAN.active = true; VIEW.notice=null; render(); }
+async function setupCameraIfNeeded(){
+  if(SCAN.stream) return;
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } });
+    SCAN.stream = stream;
+    const video = document.getElementById('scan-video');
+    if(!video) return;
+    video.srcObject = stream;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    function tick(){
+      if(!SCAN.active) return;
+      if(video.readyState === video.HAVE_ENOUGH_DATA){
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video,0,0,canvas.width,canvas.height);
+        const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
+        const code = typeof jsQR!=='undefined' ? jsQR(imgData.data, imgData.width, imgData.height) : null;
+        if(code && code.data){ handleScannedCode(code.data); return; }
+      }
+      SCAN.raf = requestAnimationFrame(tick);
+    }
+    SCAN.raf = requestAnimationFrame(tick);
+  }catch(e){
+    SCAN.active = false;
+    VIEW.notice = { type:'warn', text:"Couldn't reach the camera in this environment. Use the manual code entry below instead." };
+    render();
+  }
+}
+function stopScanner(){
+  SCAN.active = false;
+  if(SCAN.raf) cancelAnimationFrame(SCAN.raf);
+  if(SCAN.stream){ SCAN.stream.getTracks().forEach(t=>t.stop()); SCAN.stream=null; }
+}
+
+async function handleScannedCode(data){
+  stopScanner();
+  const match = /^CRS-ROOM-(.+)$/.exec((data || '').trim());
+  if(!match){
+    VIEW.notice = { type:'err', text:'That code is not a recognized room QR.' };
+    render();
+    return;
+  }
+
+  await loadRoomsFromServer();
+  const room = ROOMS.find(item => String(item.room_code) === String(match[1]));
+  if(!room){
+    VIEW.notice = { type:'err', text:'That room no longer exists.' };
+    render();
+    return;
+  }
+
+  try{
+    if(room.status === 'occupied' && String(room.teacher_id) === String(CURRENT_USER.id)){
+      const response = await fetch(`${API_BASE}/api/rooms/${room.id}/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teacher_id: CURRENT_USER.id })
+      });
+      const result = await response.json();
+      if(!response.ok){
+        VIEW.notice = { type:'err', text: result.error || 'Failed to check out.' };
+        render();
+        return;
+      }
+      VIEW.notice = { type:'ok', text:`Checked out of ${room.name}.` };
+    }else if(room.status === 'occupied'){
+      VIEW.notice = { type:'err', text:`${room.name} is currently occupied by another teacher.` };
+      render();
+      return;
+    }else{
+      await attemptCheckin(room, null, false);
+      return;
+    }
+
+    await loadRoomsFromServer();
+    VIEW.tab = 'scan';
+    persistWorkspace();
+    render();
+  }catch(error){
+    console.error('CHECK-IN/OUT ERROR:', error);
+    VIEW.notice = { type:'err', text:'Cannot connect to the server.' };
+    render();
+  }
+}
+
+async function attemptCheckin(room, endTime, force){
+  try{
+    const response = await fetch(`${API_BASE}/api/rooms/${room.id}/checkin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teacher_id: CURRENT_USER.id, end_time: endTime, force })
+    });
+    const result = await response.json();
+
+    if(response.status === 422 && result.needsTime){
+      openCheckinTimeModal(room);
+      return;
+    }
+
+    if(response.status === 409 && result.scheduleConflict){
+      requestConfirmation({
+        title:`This room has a fixed sched at ${formatTime12(result.schedule_start)} – ${formatTime12(result.schedule_end)}`,
+        message: result.label ? `${result.label}. If nobody is actually using the room, you can check in instead.` : `If nobody is actually using the room, you can check in instead.`,
+        actionLabel:"Room's empty, check in instead",
+        tone:'primary'
+      }, () => attemptCheckin(room, endTime, true));
+      return;
+    }
+
+    if(!response.ok){
+      VIEW.notice = { type:'err', text: result.error || 'Failed to check in.' };
+      render();
+      return;
+    }
+
+    VIEW.notice = { type:'ok', text:`Checked in to ${room.name}.` };
+    await loadRoomsFromServer();
+    await loadReservationsFromServer();
+    VIEW.tab = 'scan';
+    persistWorkspace();
+    render();
+  }catch(error){
+    console.error('CHECK-IN ERROR:', error);
+    VIEW.notice = { type:'err', text:'Cannot connect to the server.' };
+    render();
+  }
+}
+
+function openCheckinTimeModal(room){
+  VIEW.checkinModal = { roomId: room.id, roomName: room.name };
+  render();
+}
+function closeCheckinTimeModal(){ VIEW.checkinModal = null; render(); }
+function renderCheckinTimeModal(){
+  const m = VIEW.checkinModal;
+  if(!m) return '';
+  return `
+  <div class="modal-bg" onclick="if(event.target===this)closeCheckinTimeModal()">
+    <div class="modal confirm-card" style="max-width:380px;">
+      <h3>Check in to ${m.roomName}</h3>
+      <p class="hint" style="margin-bottom:14px;">You're checking in now. Until what time will you use this room?</p>
+      <div class="field"><label>End time</label><input type="time" id="checkin-end"></div>
+      <div id="checkin-message" aria-live="polite"></div>
+      <div class="confirm-actions">
+        <button class="btn-sm" type="button" onclick="closeCheckinTimeModal()">Cancel</button>
+        <button class="btn-sm primary" type="button" onclick="submitCheckinTime()">${icon('check')}Check in</button>
+      </div>
+    </div>
+  </div>`;
+}
+async function submitCheckinTime(){
+  const m = VIEW.checkinModal;
+  const value = document.getElementById('checkin-end').value;
+  if(!value){
+    setInlineMessage('checkin-message', 'err', 'Please enter an end time.');
+    return;
+  }
+  const room = ROOMS.find(r => r.id === m.roomId);
+  VIEW.checkinModal = null;
+  render();
+  if(room) await attemptCheckin(room, value, false);
+}
+/* ===================== STUDENT ===================== */
+function renderStudent(){
+  if(VIEW.tab==='search') return renderStudentSearch();
+  return renderStudentFollows();
+}
+function renderStudentSearch(){
+  const q = (VIEW.searchQ||'').toLowerCase();
+  const allTeachers = SERVER_USERS.filter(u => String(u.role).toLowerCase() === 'teacher');
+  const teachers = allTeachers.filter(u => String(u.name).toLowerCase().includes(q));
+  return `
+  <div class="page-head"><h2>Find Teachers</h2><p>Browse the teacher directory and follow the people you want to track.</p></div>
+  <div class="field search-field" style="max-width:340px;margin-bottom:20px;">
+    <input placeholder="Search teacher by name" value="${VIEW.searchQ||''}" oninput="setSearchQ(this.value, this.selectionStart)"/>
+  </div>
+  <div class="card teacher-directory">
+    <div class="teacher-directory-head">
+      <h3>Teacher directory</h3>
+      <span class="teacher-count">${teachers.length} ${teachers.length===1?'teacher':'teachers'}</span>
+    </div>
+    ${!DATA_STATUS.users
+      ? `<div class="empty" style="border:0;border-radius:0;">The teacher directory could not be loaded. Refresh when the server is available.</div>`
+      : teachers.length===0
+        ? `<div class="empty" style="border:0;border-radius:0;">${allTeachers.length===0 ? 'No teacher accounts are registered yet.' : 'No teachers match your search yet.'}</div>`
+        : teachers.map(t=>{
+    const f = FOLLOWS.find(x =>
+    x.student_id === CURRENT_USER.id &&
+    x.teacher_id === t.id
+);
+    let action;
+    if(!f) action = `<button class="btn-sm primary" onclick="followTeacher('${t.username}')">${icon('follow')}Follow</button>`;
+    else if(f.status==='pending') action = `<span class="badge pending">Requested</span>`;
+    else if(f.status==='accepted') action = `<button class="btn-sm danger" onclick="unfollowTeacher(${t.id})">${icon('close')}Unfollow</button>`;
+    else action = `<button class="btn-sm" onclick="followTeacher('${t.username}')">${icon('follow')}Request again</button>`;
+    return `
+        <div class="teacher-list-item">
+      <div class="person-row" style="cursor:pointer;" onclick="openPersonModal(${t.id})">
+        ${userAvatar(t)}
+        <div>
+          <div class="person-name">${t.name}</div>
+          <div class="person-sub">Teacher · @${t.username}</div>
+        </div>
+      </div>
+      <div class="action-row">
+        <button class="btn-sm" onclick="openPersonModal(${t.id})">${icon('info')}View info</button>
+        ${action}
+      </div>
+    </div>`;
+  }).join('')}
+  </div>
+  `;
+}
+function setSearchQ(v, pos){
+  VIEW.searchQ = v;
+  persistWorkspace();
+  render();
+  const input = document.querySelector('.field input');
+  if(input){
+    input.focus();
+    input.setSelectionRange(pos, pos);
+  }
+}
+
+function unfollowTeacher(teacherId){
+    const follow = FOLLOWS.find(f => f.student_id === CURRENT_USER.id && f.teacher_id === teacherId);
+    if(!follow) return;
+
+    requestConfirmation({
+        title:'Unfollow this teacher?',
+        message:`You'll no longer see ${follow.teacher_name}'s room status.`,
+        actionLabel:'Unfollow'
+    }, async () => {
+        try{
+            const response = await fetch(`${API_BASE}/api/follows/${follow.id}`, { method: 'DELETE' });
+            const data = await response.json();
+            if(!response.ok){
+                queueToast(data.error || 'Failed to unfollow.', 'error', 'Unable to unfollow');
+                render();
+                return;
+            }
+            await loadFollowsFromServer();
+            notifyUpdate(`You unfollowed ${follow.teacher_name}.`, 'success', 'Unfollowed');
+        }catch(error){
+            console.error('UNFOLLOW ERROR:', error);
+            queueToast('Cannot connect to the server.', 'error', 'Unable to unfollow');
+            render();
+        }
+    });
+}
+
+async function followTeacher(teacherUsername){
+    const teacher = SERVER_USERS.find(
+        u => u.username === teacherUsername
+    );
+
+    if(!teacher){
+        queueToast('This teacher account is no longer available.', 'error', 'Unable to follow');
+        render();
+        return;
+    }
+
+    try{
+        const response = await fetch(API_BASE + '/api/follows', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_id: CURRENT_USER.id, teacher_id: teacher.id })
+        });
+        const data = await response.json();
+        if(!response.ok){
+            queueToast(data.error || 'Failed to send follow request.', 'error', 'Unable to follow');
+            render();
+            return;
+        }
+        await loadFollowsFromServer();
+        notifyUpdate(`Your follow request for ${teacher.name} is pending approval.`, 'success', 'Request sent');
+    }catch(error){
+        console.error('FOLLOW ERROR:', error);
+        queueToast('Cannot connect to the server.', 'error', 'Unable to follow');
+        render();
+    }
+}
+
+async function approveFollow(followId){
+    try{
+        const response = await fetch(`${API_BASE}/api/follows/${followId}/approve`, { method: 'PUT' });
+        const data = await response.json();
+        if(!response.ok){
+            queueToast(data.error || 'Failed to approve follow request.', 'error', 'Unable to approve');
+            render();
+            return;
+        }
+        await loadFollowsFromServer();
+        notifyUpdate('The student can now see your room status.', 'success', 'Follower approved');
+    }catch(error){
+        console.error('APPROVE FOLLOW ERROR:', error);
+        queueToast('Cannot connect to the server.', 'error', 'Unable to approve');
+        render();
+    }
+}
+
+async function rejectFollow(followId){
+    try{
+        const response = await fetch(`${API_BASE}/api/follows/${followId}/reject`, { method: 'PUT' });
+        const data = await response.json();
+        if(!response.ok){
+            queueToast(data.error || 'Failed to reject follow request.', 'error', 'Unable to decline');
+            render();
+            return;
+        }
+        await loadFollowsFromServer();
+        notifyUpdate('The follow request was declined.', 'success', 'Request declined');
+    }catch(error){
+        console.error('REJECT FOLLOW ERROR:', error);
+        queueToast('Cannot connect to the server.', 'error', 'Unable to decline');
+        render();
+    }
+}
+
+function renderStudentFollows(){
+    const mine = FOLLOWS.filter(
+        f => f.student_id === CURRENT_USER.id
+    );
+
+    if(mine.length === 0) return `
+        <div class="page-head">
+            <h2>My Follows</h2>
+            <p>Teachers you're tracking.</p>
+        </div>
+
+        <div class="empty">
+            You're not following any teacher yet.
+            Go to Find Teachers to send a request.
+        </div>
+    `;
+
+    return `
+        <div class="page-head">
+            <h2>My Follows</h2>
+            <p>Live room status for teachers you follow.</p>
+        </div>
+
+        ${mine.map(f => {
+
+            if(f.status === 'pending') return `
+                <div class="status-card">
+                    <div class="status-strip pending"></div>
+                    <div class="status-body">
+                        <div class="row-between">
+                            <h3 style="font-size:15.5px;">
+                                ${f.teacher_name}
+                            </h3>
+                            <span class="badge pending">
+                                Waiting for approval
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            if(f.status === 'rejected') return `
+                <div class="status-card">
+                    <div class="status-strip occupied"></div>
+                    <div class="status-body">
+                        <div class="row-between">
+                            <h3 style="font-size:15.5px;">
+                                ${f.teacher_name}
+                            </h3>
+                            <span class="badge occupied">
+                                Request declined
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const room = ROOMS.find(
+                r => r.teacher_id === f.teacher_id &&
+                     r.status === 'occupied'
+            );
+
+            if(room) return `
+                <div class="status-card">
+                    <div class="status-strip occupied"></div>
+                    <div class="status-body">
+                        <div class="row-between">
+                            <div>
+                                <h3 style="font-size:15.5px;">
+                                    ${f.teacher_name}
+                                </h3>
+
+                                <p class="hint" style="margin-top:3px;">
+                                    ${room.name} · ${room.building}
+                                </p>
+                            </div>
+
+                            <span class="badge occupied">
+                                In a room
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            return `
+                <div class="status-card">
+                    <div class="status-strip vacant"></div>
+                    <div class="status-body">
+                        <div class="row-between">
+                            <h3 style="font-size:15.5px;">
+                                ${f.teacher_name}
+                            </h3>
+
+                            <span class="badge vacant">
+                                Not in a room
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+        }).join('')}
+    `;
+}
+
+/* ===================== POLLING (live-ish updates) ===================== */
+let POLL_TIMER = null;
+function startPolling(){
+  stopPolling();
+  POLL_TIMER = setInterval(async ()=>{
+    const active = document.activeElement;
+    const typing = active && (active.tagName==='INPUT' || active.tagName==='SELECT' || active.tagName==='TEXTAREA');
+    if(typing || SCAN.active || VIEW.confirm || VIEW.tab === 'info' || VIEW.scheduleModal || VIEW.checkinModal || document.querySelector('#reservation-message .msg-banner')) return;
+
+    await loadRoomsFromServer();
+    await loadReservationsFromServer();
+    await loadActivityLogsFromServer();
+    await loadFollowsFromServer();
+    await loadUsersFromServer();
+    await loadSchedulesFromServer();
+    if(CURRENT_USER.role === 'admin'){
+      await loadPendingTeachersFromServer();
+    }
+
+    if(CURRENT_USER && !SERVER_USERS.some(u => String(u.id) === String(CURRENT_USER.id))){
+      performLogout();
+      AUTH_MODE = 'login';
+      VIEW.err = "You've been removed by the admin.";
+      render();
+      return;
+    }
+
+    render();
+  }, 4000);
+}
+function stopPolling(){ if(POLL_TIMER) clearInterval(POLL_TIMER); POLL_TIMER=null; }
+
+/* ===================== BOOT / REFRESH RESTORE ===================== */
+function wait(ms){ return new Promise(resolve => window.setTimeout(resolve, ms)); }
+async function restoreWorkspace(){
+  const saved = getPersistedWorkspace();
+
+  if(!saved){
+    await wait(420);
+    setLoading(false);
+    render();
+    return;
+  }
+
+  CURRENT_USER = saved.user;
+  const tab = allowedTabs(CURRENT_USER.role).includes(saved.tab)
+    ? saved.tab
+    : defaultTab(CURRENT_USER.role);
+  VIEW = {
+    screen: CURRENT_USER.role,
+    tab,
+    err: '',
+    notice: null,
+    searchQ: saved.searchQ || ''
+  };
+
+  setLoading(true, 'Restoring your workspace', 'Loading your live classroom data and saved view.');
+  render();
+  await loadWorkspaceData();
+  setLoading(false);
+  persistWorkspace();
+  render();
+  startPolling();
+}
+
+(async function boot(){
+  render();
+  await restoreWorkspace();
+})();
+
+window.addEventListener('pageshow', function(event){
+  if(event.persisted){
+    stopPolling();
+    stopScanner();
+    restoreWorkspace();
+  }
+});
+window.addEventListener('error', function(ev){
+  const app = document.getElementById('app');
+  if(app && !app.innerHTML.trim()){
+    app.innerHTML = `<div style="max-width:520px;margin:60px auto;padding:24px;font-family:sans-serif;">
+      <h2 style="font-family:serif;">The app didn't load</h2>
+      <p style="color:#6B6355;">${ev.message || 'A script failed to load or run.'}</p>
+      <button onclick="location.reload()" style="margin-top:12px;padding:8px 14px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer;">Reload</button>
+    </div>`;
+  }
+});
