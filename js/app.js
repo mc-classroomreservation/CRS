@@ -433,7 +433,7 @@ function allowedTabs(role){
      ? ['dashboard','rooms','users','approvals','reports','info']
     : role === 'teacher'
       ? ['dashboard','status','reservations','scan','followers','info']
-      : ['dashboard','search','follows','info'];
+      : ['dashboard','rooms','search','follows','info'];
 }
 function persistWorkspace(){
   if(!CURRENT_USER) return;
@@ -942,7 +942,7 @@ function renderShell(){
   ? [['dashboard','Dashboard'],['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reports','Reports'],['info','Profile']]
     : CURRENT_USER.role==='teacher'
 ? [['dashboard','Dashboard'],['status','My Room'],['reservations','Reservations'],['scan','Scan QR'],['followers','Followers'],['info','Profile']]
-    : [['dashboard','Dashboard'],['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
+    : [['dashboard','Dashboard'],['rooms','Rooms'],['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
   const vacantRooms = ROOMS.filter(room => room.status === 'vacant').length;
   return `
     <div class="shell">
@@ -1452,7 +1452,7 @@ function renderStudentDashboard(){
             <button class="btn-sm primary" onclick="goTab('search')">Find Teachers</button>
           </div>
           
-          ${accepted.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">You aren't following anyone yet.</p>` : accepted.map(f => {
+          ${accepted.length === 0 ? `<div class="empty">You aren't following any teachers yet.<br><button class="btn-sm primary" style="margin-top:12px;" onclick="goTab('search')">${icon('search')}Find teachers</button></div>` : [...accepted].sort((a, b) => ROOMS.some(r => r.teacher_id === b.teacher_id && r.status === 'occupied') - ROOMS.some(r => r.teacher_id === a.teacher_id && r.status === 'occupied')).map(f => {
             const room = ROOMS.find(r => r.teacher_id === f.teacher_id && r.status === 'occupied');
             return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:14px; border:1px solid var(--border); border-radius:10px; margin-bottom:10px;">
@@ -1460,7 +1460,7 @@ function renderStudentDashboard(){
                 <div class="avatar" style="background:#EEF2FF; color:var(--forest); width:48px; height:48px; font-size:18px;">${initials(f.teacher_name)}</div>
                 <div>
                   <h4 style="font-size:16px; margin-bottom:4px;">${f.teacher_name}</h4>
-                  ${room ? `<p style="font-size:13px; color:var(--forest); font-weight:700;">Currently in ${room.name} (${room.building})</p>` : `<p style="font-size:13px; color:var(--ink-soft); font-weight:700;">Not in a room right now</p>`}
+                  ${room ? `<p style="font-size:13px; color:var(--forest); font-weight:700;">Currently in ${room.name} · ${[room.building, room.floor].filter(Boolean).join(' · ')}</p>` : `<p style="font-size:13px; color:var(--ink-soft); font-weight:700;">Not in a room right now</p>`}
                 </div>
               </div>
               <span class="status-pill ${room ? 'occupied' : 'vacant'}">
@@ -2583,7 +2583,7 @@ async function submitCheckinTime(){
 }
 /* ===================== STUDENT ===================== */
 function renderStudent(){
-  if(VIEW.tab==='search') return renderStudentSearch();
+  if(VIEW.tab==='rooms') return renderStudentRooms(); if(VIEW.tab==='search') return renderStudentSearch();
   return renderStudentFollows();
 }
 function renderStudentSearch(){
@@ -3160,5 +3160,45 @@ function renderLogin(){
         </div>
       </div>
     </main>
+  </div>`;
+}
+function renderStudentRooms(){
+  const vacant = ROOMS.filter(r => r.status !== 'occupied');
+  const occupied = ROOMS.filter(r => r.status === 'occupied');
+  return `
+  <div class="page-head"><h2>Rooms</h2><p>See which rooms are free right now.</p></div>
+
+  <div class="overview" aria-label="Room summary">
+    <div class="overview-item"><span class="overview-label">All rooms</span><strong class="overview-value">${ROOMS.length}</strong></div>
+    <div class="overview-item available"><span class="overview-label">Available</span><strong class="overview-value">${vacant.length}</strong></div>
+    <div class="overview-item in-use"><span class="overview-label">In use</span><strong class="overview-value">${occupied.length}</strong></div>
+  </div>
+
+  <div class="page-head"><h3 style="font-size:16px;">Vacant rooms</h3></div>
+  <div class="room-list">
+    ${vacant.length === 0 ? `<div class="empty">No vacant rooms right now.</div>` : vacant.map(r => {
+      const scheduled = isRoomFixedScheduledNow(r.id);
+      return `
+      <div class="room-item">
+        <div class="row-between">
+          <div class="rname">${r.name}</div>
+          <span class="badge" style="${scheduled ? 'background:#E2E2E2;color:#545454;' : 'background:var(--vacant-bg);color:var(--vacant);'}">${scheduled ? 'Scheduled now' : 'Vacant'}</span>
+        </div>
+        <div class="rloc">${[r.building, r.floor].filter(Boolean).join(' · ')}</div>
+      </div>`;
+    }).join('')}
+  </div>
+
+  <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Occupied rooms</h3></div>
+  <div class="room-list">
+    ${occupied.length === 0 ? `<div class="empty">No occupied rooms right now.</div>` : occupied.map(r => `
+      <div class="room-item">
+        <div class="row-between">
+          <div class="rname">${r.name}</div>
+          <span class="badge occupied">Occupied</span>
+        </div>
+        <div class="rloc">${[r.building, r.floor].filter(Boolean).join(' · ')}</div>
+      </div>
+    `).join('')}
   </div>`;
 }
