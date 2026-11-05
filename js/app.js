@@ -587,19 +587,24 @@ function renderLogin(){
 function renderLoginForm(){
   return `
     <form onsubmit="event.preventDefault();doLogin()">
-     <div class="field"><label>Institutional / Email</label><input id="li-user" value="${escapeAttr(LAST_USERNAME)}" placeholder="e.g. juandelacruz@mabinicolleges.edu.ph" autocomplete="username" autocapitalize="none" autocorrect="off" required/></div>
-    <div class="field">
-      <label>Password</label>
-      <div style="position:relative;">
-        <input id="li-pass" type="password" placeholder="••••••••" autocomplete="current-password" required style="padding-right:42px;"/>
-         <button type="button" id="li-pass-toggle" onclick="toggleLoginPasswordVisibility()" aria-label="Show password" style="position:absolute;right:2px;top:50%;transform:translateY(-50%);border:0;background:transparent;padding:8px;cursor:pointer;color:var(--ink-soft);display:grid;place-items:center;">${icon('eyeoff')}</button>
+      <div class="field">
+        <label for="li-user">Institutional / Email</label>
+        <input id="li-user" value="${escapeAttr(LAST_USERNAME)}" placeholder="e.g. juandelacruz@mabinicolleges.edu.ph" autocomplete="username" inputmode="email" enterkeyhint="next" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
       </div>
-    </div>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:12.5px;color:var(--ink-soft);cursor:pointer;">
-      <input type="checkbox" id="li-remember" style="width:auto;min-height:0;" ${REMEMBER_ME ? 'checked' : ''}/> Remember me
-    </label>
-    <button class="btn-primary" type="submit">Sign in to workspace</button>
-</form>
+      <div class="field">
+        <label for="li-pass">Password</label>
+        <div class="pw-wrap">
+          <input id="li-pass" type="password" placeholder="••••••••" autocomplete="current-password" enterkeyhint="go" required/>
+          <button type="button" id="li-pass-toggle" class="pw-toggle" onclick="toggleLoginPasswordVisibility()" aria-label="Show password">${icon('eyeoff')}</button>
+        </div>
+      </div>
+      <div class="login-options">
+        <label class="check"><input type="checkbox" id="li-remember" ${REMEMBER_ME ? 'checked' : ''}/><span>Remember me</span></label>
+        <button type="button" class="link-btn" onclick="showForgotPassword()">Forgot password?</button>
+      </div>
+      <div class="server-note" id="login-wait" role="status">Waking up the server. The first sign-in can take up to a minute, so please keep this page open.</div>
+      <button class="btn-primary" id="li-submit" type="submit">Sign in to workspace</button>
+    </form>
   `;
 }
 function renderRegisterForm(){
@@ -662,6 +667,29 @@ function toggleLoginPasswordVisibility(){
   btn.setAttribute('aria-label', willShow ? 'Hide password' : 'Show password');
 }
 
+let LOGIN_WAIT_TIMER = null;
+function setLoginBusy(busy){
+  window.clearTimeout(LOGIN_WAIT_TIMER);
+  const btn = document.getElementById('li-submit');
+  const note = document.getElementById('login-wait');
+  if(note) note.classList.remove('show');
+  if(!btn) return;
+  btn.disabled = busy;
+  btn.classList.toggle('loading', busy);
+  btn.textContent = busy ? 'Signing in…' : 'Sign in to workspace';
+  if(busy && note){
+    LOGIN_WAIT_TIMER = window.setTimeout(() => note.classList.add('show'), 4000);
+  }
+}
+function showForgotPassword(){
+  const input = document.getElementById('li-user');
+  if(input) LAST_USERNAME = input.value.trim();
+  VIEW.err = '';
+  VIEW.notice = null;
+  AUTH_MODE = 'forgot';
+  render();
+}
+
 function switchAuth(mode){ AUTH_MODE=mode; VIEW.err=''; VIEW.errField=[]; VIEW.notice=null; render(); }
 function captureRegDraft(){
   const nameInput = document.getElementById('rg-name');
@@ -703,7 +731,7 @@ function setRegRole(r){
   render();
 }
 
-async function doLogin(){
+async function doLoginOld(){
   const u = document.getElementById('li-user').value.trim();
   const p = document.getElementById('li-pass').value;
   const remember = document.getElementById('li-remember').checked;
@@ -2903,3 +2931,234 @@ window.addEventListener('error', function(ev){
     </div>`;
   }
 });
+async function doLogin(){
+  const submitBtn = document.getElementById('li-submit');
+  if(submitBtn && submitBtn.disabled) return;
+
+  const u = document.getElementById('li-user').value.trim();
+  const p = document.getElementById('li-pass').value;
+  const remember = document.getElementById('li-remember').checked;
+
+  LAST_USERNAME = u;
+
+  if(!u || !p){
+    VIEW.err = 'Please enter your email and password.';
+    render();
+    return;
+  }
+
+  REMEMBER_ME = remember;
+  try{
+    localStorage.setItem('crs-remember-me', remember ? '1' : '0');
+    localStorage.setItem('crs-last-username', u);
+  }catch(e){}
+
+  setLoginBusy(true);
+  try{
+    const response = await fetch(API_BASE + '/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    const data = await response.json();
+    setLoginBusy(false);
+
+    if(!response.ok){
+      VIEW.err = data.error || 'Incorrect email or password.';
+      render();
+      return;
+    }
+
+    CURRENT_USER = data.user;
+    setLoading(true, 'Opening your workspace', 'Signing you in.');
+    render();
+    await Promise.all([loadWorkspaceData(), wait(450)]);
+
+    setLoading(false);
+    VIEW = {
+      screen: CURRENT_USER.role,
+      tab: defaultTab(CURRENT_USER.role),
+      err: ''
+    };
+
+    persistWorkspace();
+    render();
+    startPolling();
+
+  }catch(error){
+    console.error(error);
+    setLoginBusy(false);
+    VIEW.err = "Can't reach the server. Check your connection and try again.";
+    render();
+  }
+}
+let RESET_EMAIL = '';
+
+function setBtnBusy(id, busy, idleText, busyText){
+  const btn = document.getElementById(id);
+  if(!btn) return;
+  btn.disabled = busy;
+  btn.classList.toggle('loading', busy);
+  btn.textContent = busy ? busyText : idleText;
+}
+
+function renderForgotForm(){
+  return `
+    <form onsubmit="event.preventDefault();doForgotPassword()">
+      <p class="hint" style="margin-top:16px;">Enter your account email and we'll send you a 6-digit code.</p>
+      <div class="field">
+        <label for="fp-email">Email</label>
+        <input id="fp-email" type="email" value="${escapeAttr(RESET_EMAIL || LAST_USERNAME)}" placeholder="e.g. juandelacruz@mabinicolleges.edu.ph" autocomplete="username" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
+      </div>
+      <div id="auth-message" aria-live="polite" style="margin-top:16px;"></div>
+      <button class="btn-primary" id="fp-submit" type="submit">Send reset code</button>
+    </form>
+    <div class="switch-line"><a onclick="switchAuth('login')">Back to sign in</a></div>
+  `;
+}
+
+function renderResetForm(){
+  return `
+    <form onsubmit="event.preventDefault();doResetPassword()">
+      <p class="hint" style="margin-top:16px;">We sent a 6-digit code to <strong>${escapeAttr(RESET_EMAIL)}</strong>. Enter it below with your new password.</p>
+      <div class="field"><label for="rp-code">Reset code</label><input id="rp-code" placeholder="123456" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required/></div>
+      <div class="field"><label for="rp-pass">New password</label><input id="rp-pass" type="password" placeholder="At least 8 characters" autocomplete="new-password" required/></div>
+      <div class="field"><label for="rp-confirm">Confirm new password</label><input id="rp-confirm" type="password" placeholder="Re-enter your new password" autocomplete="new-password" required/></div>
+      <div id="auth-message" aria-live="polite" style="margin-top:16px;"></div>
+      <button class="btn-primary" id="rp-submit" type="submit">Save new password</button>
+    </form>
+    <div class="switch-line">Didn't get a code? <a onclick="doForgotPassword(true)">Send again</a></div>
+    <div class="switch-line"><a onclick="switchAuth('login')">Back to sign in</a></div>
+  `;
+}
+
+async function doForgotPassword(resend){
+  const input = document.getElementById('fp-email');
+  const email = resend ? RESET_EMAIL : (input ? input.value.trim() : '');
+  if(!email){
+    setInlineMessage('auth-message', 'err', 'Please enter your email.');
+    return;
+  }
+  RESET_EMAIL = email;
+
+  setBtnBusy('fp-submit', true, 'Send reset code', 'Sending…');
+  try{
+    const response = await fetch(API_BASE + '/api/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setBtnBusy('fp-submit', false, 'Send reset code', 'Sending…');
+      setInlineMessage('auth-message', 'err', data.error || 'Failed to send reset code.');
+      return;
+    }
+    AUTH_MODE = 'reset';
+    VIEW.err = '';
+    VIEW.notice = { type:'ok', text:'If that email is registered, a reset code is on its way.' };
+    render();
+  }catch(error){
+    console.error('FORGOT PASSWORD ERROR:', error);
+    setBtnBusy('fp-submit', false, 'Send reset code', 'Sending…');
+    setInlineMessage('auth-message', 'err', "Can't reach the server. Check your connection and try again.");
+  }
+}
+
+async function doResetPassword(){
+  const code = document.getElementById('rp-code').value.trim();
+  const pass = document.getElementById('rp-pass').value;
+  const confirmPass = document.getElementById('rp-confirm').value;
+
+  if(pass.length < 8){
+    setInlineMessage('auth-message', 'err', 'Password must be at least 8 characters.');
+    return;
+  }
+  if(pass !== confirmPass){
+    setInlineMessage('auth-message', 'err', 'Passwords do not match.');
+    return;
+  }
+
+  setBtnBusy('rp-submit', true, 'Save new password', 'Saving…');
+  try{
+    const response = await fetch(API_BASE + '/api/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: RESET_EMAIL, code, newPassword: pass, confirmPassword: confirmPass })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setBtnBusy('rp-submit', false, 'Save new password', 'Saving…');
+      setInlineMessage('auth-message', 'err', data.error || 'Failed to reset password.');
+      return;
+    }
+    LAST_USERNAME = RESET_EMAIL;
+    RESET_EMAIL = '';
+    AUTH_MODE = 'login';
+    VIEW.err = '';
+    VIEW.notice = { type:'ok', text:'Password updated. You can now sign in.' };
+    render();
+  }catch(error){
+    console.error('RESET PASSWORD ERROR:', error);
+    setBtnBusy('rp-submit', false, 'Save new password', 'Saving…');
+    setInlineMessage('auth-message', 'err', "Can't reach the server. Check your connection and try again.");
+  }
+}
+function renderLogin(){
+  const isLogin = AUTH_MODE==='login';
+  const isVerify = AUTH_MODE==='verify';
+  const isForgot = AUTH_MODE==='forgot';
+  const isReset = AUTH_MODE==='reset';
+  const titleText = isLogin ? 'Welcome back' : isVerify ? 'Verify your email' : isForgot ? 'Forgot password?' : isReset ? 'Set a new password' : 'Create your account';
+  const subText = isLogin ? 'Sign in to start your session.' : isVerify ? 'Enter the code we sent you.' : isForgot ? "We'll email you a code to reset it." : isReset ? 'Enter the code and choose a new password.' : 'Join your classroom workspace in a few steps.';
+  const showSwitch = !isVerify && !isForgot && !isReset;
+  return `
+  <div class="login-shell">
+    <aside class="brand-panel">
+      <div class="brand-line">
+        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+        <div>
+          <div class="brand-name">Classroom Reservation</div>
+          <div class="brand-school">MC SPACE MANAGEMENT</div>
+        </div>
+      </div>
+      <div class="brand-copy">
+        <div class="eyebrow">Campus operations</div>
+        <h1>Every classroom, clear and accounted for.</h1>
+        <p>Reserve rooms, check in at the door, and keep the campus schedule simple for everyone.</p>
+        <div class="stats-row" aria-label="System features">
+          <div class="mini-stat"><strong>Live</strong><span>availability</span></div>
+          <div class="mini-stat"><strong>QR</strong><span>check-in</span></div>
+          <div class="mini-stat"><strong>Easy</strong><span>reservations</span></div>
+        </div>
+      </div>
+    </aside>
+    <main class="login-panel">
+      <div class="login-form">
+        <div class="mobile-brand">
+          <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+          <div><div class="brand-name">Classroom Reservation</div><div class="brand-school">MC SPACE MANAGEMENT</div></div>
+        </div>
+
+        <div class="login-card">
+          <div class="plate">
+            <div class="plate-num">CRS</div>
+            <div>
+              <div class="eyebrow">Campus operations</div>
+              <div class="plate-title">${titleText}</div>
+              <div class="plate-sub">${subText}</div>
+            </div>
+          </div>
+          ${VIEW.err ? `<div class="err" role="alert">${VIEW.err}</div>` : ''}
+          ${VIEW.notice ? `<div class="msg-banner ${VIEW.notice.type}">${VIEW.notice.text}</div>` : ''}
+          ${isVerify ? renderVerifyForm() : isForgot ? renderForgotForm() : isReset ? renderResetForm() : isLogin ? renderLoginForm() : renderRegisterForm()}
+          ${showSwitch ? `
+          <div class="switch-line">
+            ${isLogin ? `New here? <a onclick="switchAuth('register')">Sign up</a>`
+                      : `Already have an account? <a onclick="switchAuth('login')">Sign in</a>`}
+          </div>` : ''}
+        </div>
+      </div>
+    </main>
+  </div>`;
+}

@@ -477,3 +477,48 @@
   .side-logout{width:auto;padding:9px;}
   .side-logout span{display:none;}
 }
+/* ---------- Login polish (phone) ---------- */
+@media(max-width:660px){
+  .login-panel{height:auto;min-height:100dvh;overflow:visible;background:#F3F6FC;}
+  .login-form{max-width:none;padding:0 16px 28px;}
+
+  .mobile-brand{margin:0 -16px;padding:16px 18px;background:#fff;border-bottom:1px solid var(--border);}
+  .mobile-brand .brand-name{color:var(--ink);font-size:16px;}
+  .mobile-brand .brand-school{color:var(--ink-soft);}
+
+  .login-card{margin:20px 0 0;padding:26px 20px;border-radius:18px;box-shadow:0 14px 36px -18px rgba(18,19,24,.22);}
+  .plate{margin-top:20px;}
+  .plate-title{font-size:26px;letter-spacing:-.01em;}
+  .plate-sub{font-size:15px;}
+
+  .field{margin-top:18px;}
+  .field label{font-size:13px;color:#3d4655;margin-bottom:7px;}
+  .field input,.field select{border-radius:12px;}
+  .btn-primary{border-radius:12px;font-size:15px;}
+  .switch-line{font-size:14px;margin-top:20px;}
+  .hint{font-size:13px;}
+}
+
+/* button loading state */
+.btn-primary.loading{pointer-events:none;opacity:.85;}
+.btn-primary.loading::before{content:'';display:inline-block;width:14px;height:14px;margin-right:8px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;vertical-align:-2px;animation:btn-spin .7s linear infinite;}
+@keyframes btn-spin{to{transform:rotate(360deg)}}
+.btn-primary:disabled{opacity:.7;cursor:not-allowed;}
+
+/* cold-start note */
+.server-note.show{display:block;}
+.login-form .server-note{margin:12px 0 0;font-size:13px;}
+
+/* password field */
+.pw-wrap{position:relative;}
+.field .pw-wrap input{display:block;padding-right:52px;}
+.pw-toggle{position:absolute;top:0;right:0;bottom:0;width:48px;display:grid;place-items:center;border:0;border-radius:0 10px 10px 0;background:transparent;color:var(--ink-soft);cursor:pointer;}
+.pw-toggle:hover{color:var(--ink);}
+.pw-toggle .icon{width:20px;height:20px;}
+
+/* remember me + forgot password row */
+.login-options{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:6px;}
+.check{display:flex;align-items:center;gap:10px;min-height:44px;color:#3d4655;font-size:14px;cursor:pointer;}
+.check input{width:20px;height:20px;margin:0;flex:0 0 auto;accent-color:var(--forest);}
+.link-btn{min-height:44px;padding:0;border:0;background:transparent;color:var(--forest);font-size:14px;font-weight:700;cursor:pointer;}
+.link-btn:hover{text-decoration:underline;}
