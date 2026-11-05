@@ -956,7 +956,7 @@ function renderShell(){
       </div>
 
       <nav class="side-nav" aria-label="Main navigation">
-        ${nav.map(([key,label])=>`<button class="${VIEW.tab===key?'active':''}" onclick="goTab('${key}')">${navIcon(key)}<span class="tab-full">${label}</span><span class="tab-short">${({dashboard:'HOME',rooms:'ROOMS',users:'USERS',approvals:'APPROVALS',reports:'REPORTS',status:'MY ROOM',reservations:'RESERVE',scan:'SCAN',followers:'FOLLOWERS',search:'FIND',follows:'FOLLOWS'})[key] || label}</span>${navBadgeCount(key) > 0 ? `<span class="side-badge">${navBadgeCount(key)}</span>` : ''}</button>`).join('')}
+        ${nav.map(([key,label])=>`<button class="${VIEW.tab===key?'active':''}" onclick="goTab('${key}')">${navIcon(key)}<span class="tab-full">${label}</span><span class="tab-short">${({dashboard:'HOME',rooms:'ROOMS',users:'USERS',approvals:'APPROVALS',reports:'REPORTS',status:'MY ROOM',reservations:'RESERVE',scan:'SCAN',followers:'FOLLOWERS',search:'FIND TEACHER',follows:'MY FOLLOWS'})[key] || label}</span>${navBadgeCount(key) > 0 ? `<span class="side-badge">${navBadgeCount(key)}</span>` : ''}</button>`).join('')}
       </nav>
 
       <div class="side-foot">
