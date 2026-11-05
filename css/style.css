@@ -480,14 +480,14 @@
 /* ---------- Login polish (phone) ---------- */
 @media(max-width:660px){
   .login-panel{height:auto;min-height:100dvh;overflow:visible;background:#F3F6FC;}
-  .login-form{max-width:none;padding:0 16px 28px;}
+  .login-form{max-width:none;padding:0 16px 80px;}
 
   .mobile-brand{margin:0 -16px;padding:16px 18px;background:#fff;border-bottom:1px solid var(--border);}
   .mobile-brand .brand-name{color:var(--ink);font-size:16px;}
   .mobile-brand .brand-school{color:var(--ink-soft);}
 
-  .login-card{margin:20px 0 0;padding:26px 20px;border-radius:18px;box-shadow:0 14px 36px -18px rgba(18,19,24,.22);}
-  .plate{margin-top:20px;}
+  .login-card{margin:auto 0;padding:26px 20px;border-radius:18px;box-shadow:0 14px 36px -18px rgba(18,19,24,.22);}
+  .plate{margin-top:0;}
   .plate-title{font-size:26px;letter-spacing:-.01em;}
   .plate-sub{font-size:15px;}
 
@@ -522,3 +522,4 @@
 .check input{width:20px;height:20px;margin:0;flex:0 0 auto;accent-color:var(--forest);}
 .link-btn{min-height:44px;padding:0;border:0;background:transparent;color:var(--forest);font-size:14px;font-weight:700;cursor:pointer;}
 .link-btn:hover{text-decoration:underline;}
+
