@@ -538,7 +538,7 @@ function renderLogin(){
   <div class="login-shell">
     <aside class="brand-panel">
       <div class="brand-line">
-        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;"></div>
         <div>
           <div class="brand-name">Classroom Reservation</div>
           <div class="brand-school">MC SPACE MANAGEMENT</div>
@@ -558,7 +558,7 @@ function renderLogin(){
     <main class="login-panel">
       <div class="login-form">
         <div class="mobile-brand">
-          <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+          <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;"></div>
           <div><div class="brand-name">Classroom Reservation</div><div class="brand-school">MC SPACE MANAGEMENT</div></div>
         </div>
 
@@ -948,7 +948,7 @@ function renderShell(){
     <div class="shell">
     <aside class="side">
       <div class="side-logo">
-        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;"></div>
         <div>
           <div class="brand-name">Classroom Reservation</div>
           <div class="brand-school">MC SPACE MANAGEMENT</div>
@@ -3116,7 +3116,7 @@ function renderLogin(){
   <div class="login-shell">
     <aside class="brand-panel">
       <div class="brand-line">
-        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;"></div>
         <div>
           <div class="brand-name">Classroom Reservation</div>
           <div class="brand-school">MC SPACE MANAGEMENT</div>
@@ -3136,7 +3136,7 @@ function renderLogin(){
     <main class="login-panel">
       <div class="login-form">
         <div class="mobile-brand">
-          <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;padding:4px;"></div>
+          <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;"></div>
           <div><div class="brand-name">Classroom Reservation</div><div class="brand-school">MC SPACE MANAGEMENT</div></div>
         </div>
 
