@@ -1148,6 +1148,13 @@ async function changePassword(){
 }
 
 /* ===================== DASHBOARDS ===================== */
+function greetingNow(){
+  const h = Number(manilaNow().time.slice(0,2));
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+}
+function todayLabel(){
+  return new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Manila',weekday:'long',month:'long',day:'numeric'}).format(new Date());
+}
 function renderAdminDashboard(){
   const vacant = ROOMS.filter(r => r.status === 'vacant').length;
   const occupied = ROOMS.filter(r => r.status === 'occupied').length;
@@ -1160,8 +1167,8 @@ function renderAdminDashboard(){
   return `
     <div class="welcome-banner">
       <div>
-        <h2>Good morning, ${CURRENT_USER.name}</h2>
-        <p>Here is what's happening on campus today.</p>
+        <h2>${greetingNow()}, ${CURRENT_USER.name}</h2>
+        <p>${todayLabel()} · Here's what's happening on campus.</p>
       </div>
       <div style="font-size:48px; opacity:0.15; color:#fff;">${icon('building')}</div>
     </div>
