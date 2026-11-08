@@ -381,9 +381,11 @@
   }
 
   /* --- DASHBOARD SPECIFIC STYLES --- */
-  .welcome-banner{background:linear-gradient(135deg, var(--navy) 0%, var(--navy-soft) 100%);padding:24px 30px;border-radius:var(--radius);display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow);margin-bottom:24px;}
+  .welcome-banner{background:linear-gradient(135deg, #2A4FBD 0%, #3A68D0 100%);padding:24px 30px;border-radius:var(--radius);display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow);margin-bottom:24px;}
   .welcome-banner h2{color:#fff;font-size:24px;margin-bottom:6px;font-family:'Lato',sans-serif;font-weight:700;}
-  .welcome-banner p{color:rgba(255,255,255,.7);font-size:14px;}
+  .welcome-banner p{color:rgba(255,255,255,.9);font-size:14px;}
+  .welcome-banner > div:last-child{opacity:.28 !important;}
+  .welcome-banner .icon{width:60px;height:60px;stroke-width:1.5;}
   
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;margin-bottom:24px;}
   .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;display:flex;align-items:center;gap:16px;box-shadow:var(--shadow);transition:transform .2s ease;}
