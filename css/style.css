@@ -210,7 +210,7 @@
   .brand-panel::before{width:430px;height:430px;right:-160px;top:-120px;background:rgba(53,121,246,.30);}
   .brand-panel::after{width:350px;height:350px;left:-150px;bottom:-145px;background:rgba(216,114,92,.24);}
   .brand-line{position:relative;z-index:1;display:flex;align-items:center;gap:12px;}
-  .mark{display:grid;place-items:center;width:52px;height:52px;flex:0 0 auto;border:0;border-radius:0;background:none;color:#fff;box-shadow:none;font-size:12px;font-weight:800;overflow:visible;}
+  .mark{display:grid;place-items:center;width:44px;height:44px;flex:0 0 auto;border:0;border-radius:0;background:none;color:#fff;box-shadow:none;font-size:12px;font-weight:800;overflow:visible;}
   .brand-name{font-size:15px;font-weight:800;letter-spacing:-.02em;}
   .brand-school{margin-top:2px;color:rgba(255,255,255,.62);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;}
   .brand-copy{position:relative;z-index:1;max-width:480px;margin:auto 0;}
@@ -444,7 +444,7 @@
 .shell{display:flex;min-height:100vh;}
 .side{position:sticky;top:0;align-self:flex-start;z-index:20;display:flex;flex-direction:column;flex-shrink:0;width:260px;height:100vh;padding:20px 14px;overflow-y:auto;background:var(--navy);color:#fff;box-shadow:10px 0 30px -12px rgba(18,19,24,.35);}
 .side-logo{display:flex;align-items:center;gap:11px;padding:4px 8px 20px;margin-bottom:14px;border-bottom:1px solid rgba(255,255,255,.12);}
-.side-logo .mark{width:46px;height:46px;}
+.side-logo .mark{width:42px;height:42px;}
 .side-logo .brand-name{color:#fff;}
 .side-nav{display:flex;flex-direction:column;gap:4px;flex:1;}
 .side-nav button{display:flex;align-items:center;gap:11px;width:100%;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:rgba(255,255,255,.72);font-size:13.5px;font-weight:500;text-align:left;white-space:nowrap;}
