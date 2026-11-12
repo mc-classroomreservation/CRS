@@ -2527,7 +2527,7 @@ async function restoreWorkspace(){
   const saved = getPersistedWorkspace();
 
   if(!saved){
-    await wait(420);
+    
     setLoading(false);
     render();
     return;
