@@ -1,41 +1,45 @@
+/* =====================================================================
+   Classroom Reservation — main app
+   ===================================================================== */
 const API_BASE = 'https://classroom-reservation-backend.onrender.com';
-/* ===================== SERVER DATA ===================== */
+
+/* ===================== STATE ===================== */
 let ROOMS = [];
 let SERVER_USERS = [];
 let RESERVATIONS = [];
 let ACTIVITY_LOGS = [];
 let FOLLOWS = [];
+let SCHEDULES = [];
+let PENDING_TEACHERS = [];
 let DATA_STATUS = { users:true };
-async function loadActivityLogsFromServer(){
-  try{
-    const response = await fetch(API_BASE + '/api/activity-logs');
-    if(!response.ok) throw new Error('Failed to load activity logs');
-    ACTIVITY_LOGS = await response.json();
-  }catch(error){
-    console.error('Error loading activity logs:', error);
-  }
-}
+
 let CURRENT_USER = null;
 let VIEW = { screen:'login', tab:null, err:'', notice:null, toast:null, confirm:null };
-let SCAN = { active:false, stream:null, raf:null, reserveRoomId:null };
-let AUTH_MODE = 'login'; // 'login' | 'register' | 'verify'
+let SCAN = { active:false, stream:null, raf:null };
+let AUTH_MODE = 'login'; // 'login' | 'register' | 'verify' | 'forgot' | 'reset'
 let REG_ROLE = 'student';
+let REG_DRAFT = { name:'', email:'', password:'', confirmPassword:'', subject:'' };
 let PENDING_VERIFY_USERNAME = '';
-let REMEMBER_ME = false;
-try{ REMEMBER_ME = localStorage.getItem('crs-remember-me') === '1'; }catch(e){}
-let LAST_USERNAME = '';
-try{ LAST_USERNAME = localStorage.getItem('crs-last-username') || ''; }catch(e){}
-const REMEMBER_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
-const SESSION_KEY = 'crs-workspace-session-v1';
+let RESET_EMAIL = '';
+let PENDING_PROFILE_IMAGE;
 let PENDING_CONFIRMATION = null;
 let TOAST_TIMER = null;
+let LOGIN_WAIT_TIMER = null;
+let POLL_TIMER = null;
 let LOADING = {
   active: true,
   title: 'Preparing your workspace',
   detail: 'A focused place for every classroom.'
 };
 
-function uid(prefix){ return prefix + Math.random().toString(36).slice(2,8); }
+let REMEMBER_ME = false;
+try{ REMEMBER_ME = localStorage.getItem('crs-remember-me') === '1'; }catch(e){}
+let LAST_USERNAME = '';
+try{ LAST_USERNAME = localStorage.getItem('crs-last-username') || ''; }catch(e){}
+const REMEMBER_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_KEY = 'crs-workspace-session-v1';
+
+/* ===================== SMALL HELPERS ===================== */
 function initials(name){ return (name||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 function timeAgo(ts){
   if(!ts) return '';
@@ -49,6 +53,14 @@ function dateForInput(date = new Date()){
   const offset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - offset).toISOString().slice(0,10);
 }
+function wait(ms){ return new Promise(resolve => window.setTimeout(resolve, ms)); }
+function escapeAttr(value=''){
+  return String(value).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function setInlineMessage(id, type, text){
+  const area = document.getElementById(id);
+  if(area) area.innerHTML = `<div class="msg-banner ${type}" role="status">${text}</div>`;
+}
 function icon(name){
   const paths = {
     dashboard:'<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>',
@@ -58,7 +70,6 @@ function icon(name){
     users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
     calendar:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/>',
     report:'<path d="M4 19V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14"/><path d="M8 17v-4M12 17V9M16 17v-6"/><path d="M3 21h18"/>',
-    room:'<path d="M3 21h18"/><path d="M5 21V6l7-3 7 3v15"/><path d="M9 21v-6h6v6"/>',
     scan:'<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
     follow:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M16 11h6"/>',
     search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
@@ -79,8 +90,20 @@ function icon(name){
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths[name] || paths.rooms}</svg>`;
 }
 function navIcon(tab){
-  return icon({ dashboard:'dashboard', rooms:'rooms', users:'users', reservations:'calendar', reports:'report', status:'door', scan:'scan', followers:'follow', search:'follow', follows:'search', info:'info', schedules:'calendar', approvals:'check' }[tab]);
+  return icon({ dashboard:'dashboard', rooms:'rooms', users:'users', reservations:'calendar', reports:'report', status:'door', scan:'scan', followers:'follow', search:'follow', follows:'search', info:'info', approvals:'check' }[tab]);
 }
+function currentUserRecord(){
+  return SERVER_USERS.find(user => String(user.id) === String(CURRENT_USER?.id)) || CURRENT_USER;
+}
+function userAvatar(user, className='avatar'){
+  const photo = user?.profile_image;
+  return `<div class="${className}${photo ? ' has-photo' : ''}">${photo ? `<img src="${photo}" alt="${escapeAttr(user.name)}">` : initials(user?.name)}</div>`;
+}
+function profilePhotoContent(user){
+  return user?.profile_image ? `<img src="${user.profile_image}" alt="${escapeAttr(user.name)}">` : `<span>${initials(user?.name)}</span>`;
+}
+
+/* ===================== TOASTS & CONFIRMATIONS ===================== */
 function queueToast(message, tone='success', title='Updated'){
   VIEW.toast = { message, tone, title };
   window.clearTimeout(TOAST_TIMER);
@@ -123,158 +146,8 @@ function renderConfirmModal(){
   if(!confirm) return '';
   return `<div class="modal-bg" onclick="if(event.target===this)resolveConfirmation(false)"><div class="modal confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><h3 id="confirm-title">${confirm.title}</h3><p>${confirm.message}</p><div class="confirm-actions"><button class="btn-sm" type="button" onclick="resolveConfirmation(false)">Cancel</button><button class="btn-sm ${confirm.tone==='danger'?'danger':'primary'}" type="button" onclick="resolveConfirmation(true)">${icon(confirm.tone==='danger'?'trash':'check')}${confirm.actionLabel}</button></div></div></div>`;
 }
-function setInlineMessage(id, type, text){
-  const area = document.getElementById(id);
-  if(area) area.innerHTML = `<div class="msg-banner ${type}" role="status">${text}</div>`;
-}
-function escapeAttr(value=''){
-  return String(value).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-function currentUserRecord(){
-  return SERVER_USERS.find(user => String(user.id) === String(CURRENT_USER?.id)) || CURRENT_USER;
-}
-function userAvatar(user, className='avatar'){
-  const photo = user?.profile_image;
-  return `<div class="${className}${photo ? ' has-photo' : ''}">${photo ? `<img src="${photo}" alt="${escapeAttr(user.name)}">` : initials(user?.name)}</div>`;
-}
-function profilePhotoContent(user){
-  return user?.profile_image ? `<img src="${user.profile_image}" alt="${escapeAttr(user.name)}">` : `<span>${initials(user?.name)}</span>`;
-}
-let PENDING_PROFILE_IMAGE;
-function previewProfilePicture(input){
-  const file = input.files && input.files[0];
-  if(!file) return;
-  if(!file.type.startsWith('image/')){
-    input.value = '';
-    setInlineMessage('profile-message', 'err', 'Choose an image file (JPG, PNG, or WebP).');
-    return;
-  }
-  const reader = new FileReader();
-  reader.onerror = () => setInlineMessage('profile-message', 'err', 'The selected image could not be opened.');
-  reader.onload = event => {
-    const image = new Image();
-    image.onerror = () => setInlineMessage('profile-message', 'err', 'The selected image could not be processed.');
-    image.onload = () => {
-      const maxEdge = 512;
-      const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(image.width * scale));
-      canvas.height = Math.max(1, Math.round(image.height * scale));
-      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-      PENDING_PROFILE_IMAGE = canvas.toDataURL('image/jpeg', .82);
-      const preview = document.getElementById('profile-photo-preview');
-      if(preview) preview.innerHTML = `<img src="${PENDING_PROFILE_IMAGE}" alt="New profile preview">`;
-      setInlineMessage('profile-message', 'ok', 'Photo ready. Save your information to keep it.');
-    };
-    image.src = event.target.result;
-  };
-  reader.readAsDataURL(file);
-}
-function clearProfilePicture(){
-  PENDING_PROFILE_IMAGE = '';
-  const preview = document.getElementById('profile-photo-preview');
-  if(preview) preview.innerHTML = `<span>${initials(CURRENT_USER?.name)}</span>`;
-  setInlineMessage('profile-message', 'warn', 'The photo will be removed when you save your information.');
-}
-function saveProfile(){
-  const user = currentUserRecord();
-  const nameInput = document.getElementById('profile-name');
-  const name = nameInput.value.trim();
-  if(!name){ nameInput.reportValidity(); nameInput.focus(); return; }
 
-  const previousName = user.name;
-  user.name = name;
-  if(user.role === 'student'){
-    const studentId = document.getElementById('profile-student-id');
-    const year = document.getElementById('profile-year');
-    const block = document.getElementById('profile-block');
-    if(!studentId.value.trim() || !year.value.trim() || !block.value.trim()){
-      const firstMissing = [studentId, year, block].find(input => !input.value.trim());
-      firstMissing.reportValidity(); firstMissing.focus(); return;
-    }
-    user.student_id = studentId.value.trim(); user.year = year.value.trim(); user.block = block.value.trim();
-  }
-  if(user.role === 'teacher'){
-    const subject = document.getElementById('profile-subject');
-    if(!subject.value.trim()){ subject.reportValidity(); subject.focus(); return; }
-    user.class_subject = subject.value.trim();
-  }
-  if(PENDING_PROFILE_IMAGE !== undefined) user.profile_image = PENDING_PROFILE_IMAGE;
-
-  if(previousName !== user.name){
-    RESERVATIONS.forEach(item => { if(String(item.teacher_id) === String(user.id)) item.teacher_name = user.name; });
-    ACTIVITY_LOGS.forEach(item => { if(String(item.teacher_id) === String(user.id)) item.teacher_name = user.name; });
-    FOLLOWS.forEach(item => {
-      if(String(item.teacher_id) === String(user.id)) item.teacher_name = user.name;
-      if(String(item.student_id) === String(user.id)) item.student_name = user.name;
-    });
-  }
-  const { password, ...safeUser } = user;
-  CURRENT_USER = safeUser;
-  PENDING_PROFILE_IMAGE = undefined;
-  notifyUpdate('Saved on this device. (Profile details aren\'t stored on the server yet.)', 'success', 'Profile updated');
-}
-
-async function saveProfile(){
-  const user = currentUserRecord();
-  const nameInput = document.getElementById('profile-name');
-  const name = nameInput.value.trim();
-  if(!name){ nameInput.reportValidity(); nameInput.focus(); return; }
-
-  let student_id = user.student_id || null;
-  let course = user.course || null;
-  let year = user.year || null;
-  let block = user.block || null;
-  let class_subject = user.class_subject || null;
-
-  if(user.role === 'student'){
-    const studentIdInput = document.getElementById('profile-student-id');
-    const courseInput = document.getElementById('profile-course');
-    const yearInput = document.getElementById('profile-year');
-    const blockInput = document.getElementById('profile-block');
-     if(!studentIdInput.value.trim() || !courseInput.value.trim() || !yearInput.value.trim() || !blockInput.value.trim()){
-      const firstMissing = [studentIdInput, courseInput, yearInput, blockInput].find(input => !input.value.trim());
-      firstMissing.reportValidity(); firstMissing.focus(); return;
-    }
-    if(!/^\d{6}$/.test(studentIdInput.value.trim())){
-      studentIdInput.setCustomValidity('Student ID must be exactly 6 numbers.');
-      studentIdInput.reportValidity();
-      studentIdInput.setCustomValidity('');
-      studentIdInput.focus();
-      return;
-    }
-    student_id = studentIdInput.value.trim(); course = courseInput.value.trim(); year = yearInput.value.trim(); block = blockInput.value.trim();
-  }
-  if(user.role === 'teacher'){
-    const subjectInput = document.getElementById('profile-subject');
-    if(!subjectInput.value.trim()){ subjectInput.reportValidity(); subjectInput.focus(); return; }
-    class_subject = subjectInput.value.trim();
-  }
-
-  const profile_image = PENDING_PROFILE_IMAGE !== undefined ? PENDING_PROFILE_IMAGE : (user.profile_image || null);
-
-  try{
-    const response = await fetch(`${API_BASE}/api/users/${user.id}/profile`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-       body: JSON.stringify({ name, profile_image, student_id, course, year, block, class_subject })
-    });
-    const data = await response.json();
-    if(!response.ok){
-      setInlineMessage('profile-message', 'err', data.error || 'Failed to save profile.');
-      return;
-    }
-
-    CURRENT_USER = data.user;
-    PENDING_PROFILE_IMAGE = undefined;
-    await loadUsersFromServer();
-    notifyUpdate('Your profile has been saved.', 'success', 'Profile updated');
-  }catch(error){
-    console.error('SAVE PROFILE ERROR:', error);
-    setInlineMessage('profile-message', 'err', 'Cannot connect to the server.');
-  }
-}
-
+/* ===================== SERVER DATA ===================== */
 async function loadRoomsFromServer(){
   try{
     const response = await fetch(API_BASE + '/api/rooms');
@@ -304,9 +177,24 @@ async function loadUsersFromServer(){
     DATA_STATUS.users = false;
   }
 }
-
-let PENDING_TEACHERS = [];
-let SCHEDULES = [];
+async function loadActivityLogsFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/activity-logs');
+    if(!response.ok) throw new Error('Failed to load activity logs');
+    ACTIVITY_LOGS = await response.json();
+  }catch(error){
+    console.error('Error loading activity logs:', error);
+  }
+}
+async function loadFollowsFromServer(){
+  try{
+    const response = await fetch(API_BASE + '/api/follows');
+    if(!response.ok) throw new Error('Failed to load follows');
+    FOLLOWS = await response.json();
+  }catch(error){
+    console.error('Error loading follows:', error);
+  }
+}
 async function loadSchedulesFromServer(){
   try{
     const response = await fetch(API_BASE + '/api/schedules');
@@ -325,118 +213,38 @@ async function loadPendingTeachersFromServer(){
     console.error('Error loading pending teachers:', error);
   }
 }
-async function approveTeacher(teacherId, teacherName){
-  requestConfirmation({
-    title:'Approve this teacher?',
-    message:`${teacherName} will be able to sign in once approved.`,
-    actionLabel:'Approve',
-    tone:'primary'
-  }, async () => {
-    try{
-      const response = await fetch(`${API_BASE}/api/users/${teacherId}/approve`, { method: 'PUT' });
-      const data = await response.json();
-      if(!response.ok){
-        queueToast(data.error || 'Failed to approve teacher.', 'error', 'Unable to approve');
-        render();
-        return;
-      }
-      await loadPendingTeachersFromServer();
-      await loadUsersFromServer();
-      notifyUpdate(`${teacherName} can now sign in.`, 'success', 'Teacher approved');
-    }catch(error){
-      console.error('APPROVE TEACHER ERROR:', error);
-      queueToast('Cannot connect to the server.', 'error', 'Unable to approve');
-      render();
-    }
-  });
-}
-async function rejectTeacherSignup(teacherId, teacherName){
-  requestConfirmation({
-    title:'Reject this teacher?',
-    message:`${teacherName} will not be able to sign in.`,
-    actionLabel:'Reject'
-  }, async () => {
-    try{
-      const response = await fetch(`${API_BASE}/api/users/${teacherId}/reject`, { method: 'PUT' });
-      const data = await response.json();
-      if(!response.ok){
-        queueToast(data.error || 'Failed to reject teacher.', 'error', 'Unable to reject');
-        render();
-        return;
-      }
-      await loadPendingTeachersFromServer();
-      notifyUpdate(`${teacherName}'s request was rejected.`, 'success', 'Teacher rejected');
-    }catch(error){
-      console.error('REJECT TEACHER ERROR:', error);
-      queueToast('Cannot connect to the server.', 'error', 'Unable to reject');
-      render();
-    }
-  });
-}
-function renderAdminApprovals(){
-  return `
-    <div class="page-head"><h2>Approvals</h2><p>Review teacher sign-up requests.</p></div>
-    <div class="card teacher-directory">
-      ${PENDING_TEACHERS.length === 0 ? `<div class="empty">No pending teacher requests.</div>` : PENDING_TEACHERS.map(t => `
-        <div class="teacher-list-item">
-          <div class="person-row">${userAvatar(t)}<div><div class="person-name">${t.name}</div><div class="person-sub">@${t.username} · wants to join as a teacher</div></div></div>
-          <div class="action-row">
-            <button class="btn-sm primary" onclick="approveTeacher(${t.id}, '${t.name}')">${icon('check')}Approve</button>
-            <button class="btn-sm danger" onclick="rejectTeacherSignup(${t.id}, '${t.name}')">${icon('close')}Reject</button>
-          </div>
-        </div>
-      `).join('')}
-    </div>`;
+async function loadWorkspaceData(){
+  await Promise.all([
+    loadRoomsFromServer(),
+    loadUsersFromServer(),
+    loadReservationsFromServer(),
+    loadActivityLogsFromServer(),
+    loadFollowsFromServer(),
+    loadPendingTeachersFromServer(),
+    loadSchedulesFromServer()
+  ]);
 }
 
-async function loadFollowsFromServer(){
-  try{
-    const response = await fetch(API_BASE + '/api/follows');
-    if(!response.ok) throw new Error('Failed to load follows');
-    FOLLOWS = await response.json();
-  }catch(error){
-    console.error('Error loading follows:', error);
-  }
+/* ===================== SESSION ===================== */
+function isReturningUser(){
+  try{ return localStorage.getItem('crs-returning') === '1'; }catch(e){ return false; }
 }
-
-/* ===================== RENDER ROOT ===================== */
-function doLogout(){
-  requestConfirmation({
-    title:'Log out?',
-    message:'You\'ll need to Sign in again to access your workspace.',
-    actionLabel:'Log out'
-  }, performLogout);
+function markReturningUser(){
+  try{ localStorage.setItem('crs-returning', '1'); }catch(e){}
 }
-function performLogout(){
-  stopPolling();
-  stopScanner();
-  PENDING_PROFILE_IMAGE = undefined;
-
-  CURRENT_USER = null;
-  sessionStorage.removeItem(SESSION_KEY);
-  localStorage.removeItem(SESSION_KEY);
-
-  VIEW = {
-    screen: 'login',
-    tab: null,
-    err: '',
-    notice: null
-  };
-
-  render();
-}
-function defaultTab(role){
+function defaultTab(){
   return 'dashboard';
 }
 function allowedTabs(role){
   return role === 'admin'
-     ? ['dashboard','rooms','users','approvals','reports','info']
+    ? ['dashboard','rooms','users','approvals','reports','info']
     : role === 'teacher'
       ? ['dashboard','status','reservations','scan','followers','info']
       : ['dashboard','rooms','search','follows','info'];
 }
 function persistWorkspace(){
   if(!CURRENT_USER) return;
+  markReturningUser();
   const payload = JSON.stringify({
     user: CURRENT_USER,
     tab: VIEW.tab,
@@ -469,17 +277,56 @@ function getPersistedWorkspace(){
     return null;
   }
 }
-async function loadWorkspaceData(){
-  await Promise.all([
-    loadRoomsFromServer(),
-    loadUsersFromServer(),
-    loadReservationsFromServer(),
-    loadActivityLogsFromServer(),
-    loadFollowsFromServer(),
-    loadPendingTeachersFromServer(),
-    loadSchedulesFromServer()
-  ]);
+function doLogout(){
+  requestConfirmation({
+    title:'Log out?',
+    message:'You\'ll need to Sign in again to access your workspace.',
+    actionLabel:'Log out'
+  }, performLogout);
 }
+function performLogout(){
+  stopPolling();
+  stopScanner();
+  PENDING_PROFILE_IMAGE = undefined;
+
+  CURRENT_USER = null;
+  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);
+
+  VIEW = { screen:'login', tab:null, err:'', notice:null };
+  render();
+}
+async function restoreWorkspace(){
+  const saved = getPersistedWorkspace();
+
+  if(!saved){
+    setLoading(false);
+    render();
+    return;
+  }
+
+  CURRENT_USER = saved.user;
+  const tab = allowedTabs(CURRENT_USER.role).includes(saved.tab)
+    ? saved.tab
+    : defaultTab();
+  VIEW = {
+    screen: CURRENT_USER.role,
+    tab,
+    err: '',
+    notice: null,
+    searchQ: saved.searchQ || ''
+  };
+
+  setLoading(true, 'Restoring your workspace', 'Loading your live classroom data and saved view.');
+  render();
+  await loadWorkspaceData();
+  setLoading(false);
+  persistWorkspace();
+  render();
+  startPolling();
+}
+
+/* ===================== RENDER ROOT ===================== */
 function setLoading(active, title, detail){
   LOADING = {
     active,
@@ -515,18 +362,7 @@ function render(){
     </div>`;
   }
 }
-
 function afterRenderHooks(){
-  if(VIEW.tab==='dashboard' && CURRENT_USER.role==='admin'){
-    document.querySelectorAll('.stat-card').forEach(card=>{
-      const label = card.querySelector('.label')?.textContent.trim();
-      if(['Total Rooms','Available Now','Occupied Now'].includes(label)){
-        card.style.cursor = 'pointer';
-        card.onclick = () => label === 'Available Now' ? goToVacantRooms() : goTab('rooms');
-      }
-    });
-  }
-  if(VIEW.screen==='admin' && VIEW.tab==='rooms'){ /* nothing async needed here */ }
   if(VIEW.qrModalRoomId){ drawQR('qr-canvas-target', VIEW.qrModalRoomId); }
   if(SCAN.active){ setupCameraIfNeeded(); }
 }
@@ -541,8 +377,11 @@ document.addEventListener('keydown', event => {
 function renderLogin(){
   const isLogin = AUTH_MODE==='login';
   const isVerify = AUTH_MODE==='verify';
-  const titleText = isLogin ? 'Welcome back' : isVerify ? 'Verify your email' : 'Create your account';
-  const subText = isLogin ? 'Sign in to start your session.' : isVerify ? 'Enter the code we sent you.' : 'Join your classroom workspace in a few steps.';
+  const isForgot = AUTH_MODE==='forgot';
+  const isReset = AUTH_MODE==='reset';
+  const titleText = isLogin ? (isReturningUser() ? 'Welcome back' : 'Welcome') : isVerify ? 'Verify your email' : isForgot ? 'Forgot password?' : isReset ? 'Set a new password' : 'Create your account';
+  const subText = isLogin ? 'Sign in to continue.' : isVerify ? 'Enter the code we sent you.' : isForgot ? "We'll email you a code to reset it." : isReset ? 'Enter the code and choose a new password.' : 'Join your classroom workspace in a few steps.';
+  const showSwitch = !isVerify && !isForgot && !isReset;
   return `
   <div class="login-shell">
     <aside class="brand-panel">
@@ -573,22 +412,18 @@ function renderLogin(){
 
         <div class="login-card">
           <div class="plate">
-            <div class="plate-num">CRS</div>
-            <div>
-              <div class="eyebrow">Campus operations</div>
-              <div class="plate-title">${titleText}</div>
-              <div class="plate-sub">${subText}</div>
-            </div>
+            <div class="plate-title">${titleText}</div>
+            <div class="plate-sub">${subText}</div>
           </div>
-          ${VIEW.err ? `<div class="err">${VIEW.err}</div>` : ''}
+          ${VIEW.err ? `<div class="err" role="alert">${VIEW.err}</div>` : ''}
           ${VIEW.notice ? `<div class="msg-banner ${VIEW.notice.type}">${VIEW.notice.text}</div>` : ''}
-          ${isVerify ? renderVerifyForm() : isLogin ? renderLoginForm() : renderRegisterForm()}
-          ${!isVerify ? `
+          ${isVerify ? renderVerifyForm() : isForgot ? renderForgotForm() : isReset ? renderResetForm() : isLogin ? renderLoginForm() : renderRegisterForm()}
+          ${showSwitch ? `
           <div class="switch-line">
             ${isLogin ? `New here? <a onclick="switchAuth('register')">Sign up</a>`
                       : `Already have an account? <a onclick="switchAuth('login')">Sign in</a>`}
           </div>` : ''}
-        </div>  
+        </div>
       </div>
     </main>
   </div>`;
@@ -647,25 +482,44 @@ function renderVerifyForm(){
     <div class="switch-line"><a onclick="switchAuth('register')">Back to sign up</a></div>
   `;
 }
-async function doResendCode(){
-  try{
-    const response = await fetch(API_BASE + '/api/resend-code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: PENDING_VERIFY_USERNAME })
-    });
-    const data = await response.json();
-    if(!response.ok){
-      setInlineMessage('verify-message', 'err', data.error || 'Failed to resend code.');
-      return;
-    }
-    setInlineMessage('verify-message', 'ok', 'A new code has been sent to your email.');
-  }catch(error){
-    console.error('RESEND CODE ERROR:', error);
-    setInlineMessage('verify-message', 'err', 'Cannot connect to the server.');
-  }
+function renderForgotForm(){
+  return `
+    <form onsubmit="event.preventDefault();doForgotPassword()">
+      <p class="hint" style="margin-top:16px;">Enter your account email and we'll send you a 6-digit code.</p>
+      <div class="field">
+        <label for="fp-email">Email</label>
+        <input id="fp-email" type="email" value="${escapeAttr(RESET_EMAIL || LAST_USERNAME)}" placeholder="e.g. juandelacruz@mabinicolleges.edu.ph" autocomplete="username" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
+      </div>
+      <div id="auth-message" aria-live="polite" style="margin-top:16px;"></div>
+      <button class="btn-primary" id="fp-submit" type="submit">Send reset code</button>
+    </form>
+    <div class="switch-line"><a onclick="switchAuth('login')">Back to sign in</a></div>
+  `;
+}
+function renderResetForm(){
+  return `
+    <form onsubmit="event.preventDefault();doResetPassword()">
+      <p class="hint" style="margin-top:16px;">We sent a 6-digit code to <strong>${escapeAttr(RESET_EMAIL)}</strong>. Enter it below with your new password.</p>
+      <div class="field"><label for="rp-code">Reset code</label><input id="rp-code" placeholder="123456" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required/></div>
+      <div class="field"><label for="rp-pass">New password</label><input id="rp-pass" type="password" placeholder="At least 8 characters" autocomplete="new-password" required/></div>
+      <div class="field"><label for="rp-confirm">Confirm new password</label><input id="rp-confirm" type="password" placeholder="Re-enter your new password" autocomplete="new-password" required/></div>
+      <div id="auth-message" aria-live="polite" style="margin-top:16px;"></div>
+      <button class="btn-primary" id="rp-submit" type="submit">Save new password</button>
+    </form>
+    <div class="switch-line">Didn't get a code? <a onclick="doForgotPassword(true)">Send again</a></div>
+    <div class="switch-line"><a onclick="switchAuth('login')">Back to sign in</a></div>
+  `;
 }
 
+function switchAuth(mode){ AUTH_MODE=mode; VIEW.err=''; VIEW.errField=[]; VIEW.notice=null; render(); }
+function showForgotPassword(){
+  const input = document.getElementById('li-user');
+  if(input) LAST_USERNAME = input.value.trim();
+  VIEW.err = '';
+  VIEW.notice = null;
+  AUTH_MODE = 'forgot';
+  render();
+}
 function toggleLoginPasswordVisibility(){
   const input = document.getElementById('li-pass');
   const btn = document.getElementById('li-pass-toggle');
@@ -675,8 +529,6 @@ function toggleLoginPasswordVisibility(){
   btn.innerHTML = icon(willShow ? 'eye' : 'eyeoff');
   btn.setAttribute('aria-label', willShow ? 'Hide password' : 'Show password');
 }
-
-let LOGIN_WAIT_TIMER = null;
 function setLoginBusy(busy){
   window.clearTimeout(LOGIN_WAIT_TIMER);
   const btn = document.getElementById('li-submit');
@@ -690,16 +542,15 @@ function setLoginBusy(busy){
     LOGIN_WAIT_TIMER = window.setTimeout(() => note.classList.add('show'), 4000);
   }
 }
-function showForgotPassword(){
-  const input = document.getElementById('li-user');
-  if(input) LAST_USERNAME = input.value.trim();
-  VIEW.err = '';
-  VIEW.notice = null;
-  AUTH_MODE = 'forgot';
-  render();
+function setBtnBusy(id, busy, idleText, busyText){
+  const btn = document.getElementById(id);
+  if(!btn) return;
+  btn.disabled = busy;
+  btn.classList.toggle('loading', busy);
+  btn.textContent = busy ? busyText : idleText;
 }
 
-function switchAuth(mode){ AUTH_MODE=mode; VIEW.err=''; VIEW.errField=[]; VIEW.notice=null; render(); }
+/* ----- register form helpers ----- */
 function captureRegDraft(){
   const nameInput = document.getElementById('rg-name');
   const emailInput = document.getElementById('rg-email');
@@ -711,6 +562,11 @@ function captureRegDraft(){
   if(passInput) REG_DRAFT.password = passInput.value;
   if(passConfirmInput) REG_DRAFT.confirmPassword = passConfirmInput.value;
   if(subjectInput) REG_DRAFT.subject = subjectInput.value;
+}
+function setRegRole(role){
+  captureRegDraft();
+  REG_ROLE = role;
+  render();
 }
 function guessErrorField(message){
   const m = (message||'').toLowerCase();
@@ -724,29 +580,20 @@ function guessErrorField(message){
 function errMark(key){
   return (VIEW.errField||[]).includes(key) ? ' <span style="color:var(--occupied);">*</span>' : '';
 }
-let REG_DRAFT = { name:'', email:'', password:'', confirmPassword:'', subject:'' };
-function setRegRole(r){
-  const nameInput = document.getElementById('rg-name');
-  const emailInput = document.getElementById('rg-email');
-  const passInput = document.getElementById('rg-pass');
-  const passConfirmInput = document.getElementById('rg-pass-confirm');
-  const subjectInput = document.getElementById('rg-subject');
-  if(nameInput) REG_DRAFT.name = nameInput.value;
-  if(emailInput) REG_DRAFT.email = emailInput.value;
-  if(passInput) REG_DRAFT.password = passInput.value;
-  if(passConfirmInput) REG_DRAFT.confirmPassword = passConfirmInput.value;
-  if(subjectInput) REG_DRAFT.subject = subjectInput.value;
-  REG_ROLE = r;
-  render();
-}
 
-async function doLoginOld(){
+/* ----- auth actions ----- */
+async function doLogin(){
+  const submitBtn = document.getElementById('li-submit');
+  if(submitBtn && submitBtn.disabled) return;
+
   const u = document.getElementById('li-user').value.trim();
   const p = document.getElementById('li-pass').value;
   const remember = document.getElementById('li-remember').checked;
 
+  LAST_USERNAME = u;
+
   if(!u || !p){
-    VIEW.err = 'Please enter your username and password.';
+    VIEW.err = 'Please enter your email and password.';
     render();
     return;
   }
@@ -757,6 +604,7 @@ async function doLoginOld(){
     localStorage.setItem('crs-last-username', u);
   }catch(e){}
 
+  setLoginBusy(true);
   try{
     const response = await fetch(API_BASE + '/api/login', {
       method: 'POST',
@@ -764,9 +612,10 @@ async function doLoginOld(){
       body: JSON.stringify({ username: u, password: p })
     });
     const data = await response.json();
+    setLoginBusy(false);
 
     if(!response.ok){
-      VIEW.err = data.error || 'Incorrect username or password.';
+      VIEW.err = data.error || 'Incorrect email or password.';
       render();
       return;
     }
@@ -777,11 +626,7 @@ async function doLoginOld(){
     await Promise.all([loadWorkspaceData(), wait(450)]);
 
     setLoading(false);
-    VIEW = {
-      screen: CURRENT_USER.role,
-      tab: defaultTab(CURRENT_USER.role),
-      err: ''
-    };
+    VIEW = { screen: CURRENT_USER.role, tab: defaultTab(), err: '' };
 
     persistWorkspace();
     render();
@@ -789,112 +634,109 @@ async function doLoginOld(){
 
   }catch(error){
     console.error(error);
-    VIEW.err = 'Cannot connect to the server.';
+    setLoginBusy(false);
+    VIEW.err = "Can't reach the server. Check your connection and try again.";
     render();
   }
 }
 
 async function doRegister(){
+  const name = document.getElementById('rg-name').value.trim();
+  const email = document.getElementById('rg-email').value.trim();
+  const p = document.getElementById('rg-pass').value;
+  const pConfirm = document.getElementById('rg-pass-confirm').value;
 
-    const name = document.getElementById('rg-name').value.trim();
-    const email = document.getElementById('rg-email').value.trim();
-    const p = document.getElementById('rg-pass').value;
-    const pConfirm = document.getElementById('rg-pass-confirm').value;
+  captureRegDraft();
 
-    captureRegDraft();
+  if(!name || !email || !p || !pConfirm){
+    VIEW.err = 'Please fill in every field.';
+    VIEW.errField = [!name?'name':null, !email?'email':null, !p?'password':null, !pConfirm?'confirmPassword':null].filter(Boolean);
+    render();
+    return;
+  }
 
-    if(!name || !email || !p || !pConfirm){
-        VIEW.err = 'Please fill in every field.';
-        VIEW.errField = [!name?'name':null, !email?'email':null, !p?'password':null, !pConfirm?'confirmPassword':null].filter(Boolean);
+  if(p.length < 8){
+    VIEW.err = 'Password must be at least 8 characters.';
+    VIEW.errField = ['password'];
+    render();
+    return;
+  }
+
+  if(p !== pConfirm){
+    VIEW.err = 'Passwords do not match.';
+    VIEW.errField = ['password','confirmPassword'];
+    render();
+    return;
+  }
+
+  try{
+    if(REG_ROLE === 'student'){
+      setLoading(true, 'Verifying your account', 'Sending a verification code to your email.');
+      render();
+
+      const response = await fetch(API_BASE + '/api/register/student', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password: p, confirmPassword: pConfirm })
+      });
+      const data = await response.json();
+
+      setLoading(false);
+
+      if(!response.ok){
+        VIEW.err = data.error || 'Registration failed.';
+        VIEW.errField = guessErrorField(VIEW.err);
         render();
         return;
+      }
+
+      PENDING_VERIFY_USERNAME = data.username;
+      AUTH_MODE = 'verify';
+      VIEW.err = '';
+      VIEW.errField = [];
+      render();
+      return;
     }
 
-    if(p.length < 8){
-        VIEW.err = 'Password must be at least 8 characters.';
-        VIEW.errField = ['password'];
-        render();
-        return;
+    const subject = document.getElementById('rg-subject').value.trim();
+    if(!subject){
+      VIEW.err = 'Please fill in every field.';
+      VIEW.errField = ['subject'];
+      render();
+      return;
     }
 
-    if(p !== pConfirm){
-        VIEW.err = 'Passwords do not match.';
-        VIEW.errField = ['password','confirmPassword'];
-        render();
-        return;
+    setLoading(true, 'Creating your workspace', 'Setting up your account.');
+    render();
+
+    const response = await fetch(API_BASE + '/api/register/teacher', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password: p, confirmPassword: pConfirm, class_subject: subject })
+    });
+    const data = await response.json();
+
+    setLoading(false);
+
+    if(!response.ok){
+      VIEW.err = data.error || 'Registration failed.';
+      VIEW.errField = guessErrorField(VIEW.err);
+      render();
+      return;
     }
 
-    try {
+    AUTH_MODE = 'login';
+    VIEW.err = '';
+    VIEW.errField = [];
+    VIEW.notice = { type:'ok', text: data.message };
+    render();
 
-        if(REG_ROLE === 'student'){
-            setLoading(true, 'Verifying your account', 'Sending a verification code to your email.');
-            render();
-
-            const response = await fetch(API_BASE + '/api/register/student', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email, password: p, confirmPassword: pConfirm })
-            });
-            const data = await response.json();
-
-            setLoading(false);
-
-            if(!response.ok){
-                VIEW.err = data.error || 'Registration failed.';
-                VIEW.errField = guessErrorField(VIEW.err);
-                render();
-                return;
-            }
-
-            PENDING_VERIFY_USERNAME = data.username;
-            AUTH_MODE = 'verify';
-            VIEW.err = '';
-            VIEW.errField = [];
-            render();
-            return;
-        }
-
-        const subject = document.getElementById('rg-subject').value.trim();
-        if(!subject){
-            VIEW.err = 'Please fill in every field.';
-            VIEW.errField = ['subject'];
-            render();
-            return;
-        }
-
-        setLoading(true, 'Creating your workspace', 'Setting up your account.');
-        render();
-
-        const response = await fetch(API_BASE + '/api/register/teacher', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, password: p, confirmPassword: pConfirm, class_subject: subject })
-        });
-        const data = await response.json();
-
-        setLoading(false);
-
-        if(!response.ok){
-            VIEW.err = data.error || 'Registration failed.';
-            VIEW.errField = guessErrorField(VIEW.err);
-            render();
-            return;
-        }
-
-        AUTH_MODE = 'login';
-        VIEW.err = '';
-        VIEW.errField = [];
-        VIEW.notice = { type:'ok', text: data.message };
-        render();
-
-    } catch(error) {
-
-        console.error('REGISTRATION ERROR:', error);
-
-        setLoading(false);
-        VIEW.err = 'Cannot connect to the server.';
-        render();
-    }
+  }catch(error){
+    console.error('REGISTRATION ERROR:', error);
+    setLoading(false);
+    VIEW.err = 'Cannot connect to the server.';
+    render();
+  }
 }
 
 async function doVerifyCode(){
@@ -928,11 +770,7 @@ async function doVerifyCode(){
     await Promise.all([loadWorkspaceData(), wait(450)]);
 
     setLoading(false);
-    VIEW = {
-      screen: CURRENT_USER.role,
-      tab: defaultTab(CURRENT_USER.role),
-      err: ''
-    };
+    VIEW = { screen: CURRENT_USER.role, tab: defaultTab(), err: '' };
 
     persistWorkspace();
     render();
@@ -945,13 +783,106 @@ async function doVerifyCode(){
     render();
   }
 }
+
+async function doResendCode(){
+  try{
+    const response = await fetch(API_BASE + '/api/resend-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: PENDING_VERIFY_USERNAME })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('verify-message', 'err', data.error || 'Failed to resend code.');
+      return;
+    }
+    setInlineMessage('verify-message', 'ok', 'A new code has been sent to your email.');
+  }catch(error){
+    console.error('RESEND CODE ERROR:', error);
+    setInlineMessage('verify-message', 'err', 'Cannot connect to the server.');
+  }
+}
+
+async function doForgotPassword(resend){
+  const input = document.getElementById('fp-email');
+  const email = resend ? RESET_EMAIL : (input ? input.value.trim() : '');
+  if(!email){
+    setInlineMessage('auth-message', 'err', 'Please enter your email.');
+    return;
+  }
+  RESET_EMAIL = email;
+
+  setBtnBusy('fp-submit', true, 'Send reset code', 'Sending…');
+  try{
+    const response = await fetch(API_BASE + '/api/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setBtnBusy('fp-submit', false, 'Send reset code', 'Sending…');
+      setInlineMessage('auth-message', 'err', data.error || 'Failed to send reset code.');
+      return;
+    }
+    AUTH_MODE = 'reset';
+    VIEW.err = '';
+    VIEW.notice = { type:'ok', text:'If that email is registered, a reset code is on its way.' };
+    render();
+  }catch(error){
+    console.error('FORGOT PASSWORD ERROR:', error);
+    setBtnBusy('fp-submit', false, 'Send reset code', 'Sending…');
+    setInlineMessage('auth-message', 'err', "Can't reach the server. Check your connection and try again.");
+  }
+}
+
+async function doResetPassword(){
+  const code = document.getElementById('rp-code').value.trim();
+  const pass = document.getElementById('rp-pass').value;
+  const confirmPass = document.getElementById('rp-confirm').value;
+
+  if(pass.length < 8){
+    setInlineMessage('auth-message', 'err', 'Password must be at least 8 characters.');
+    return;
+  }
+  if(pass !== confirmPass){
+    setInlineMessage('auth-message', 'err', 'Passwords do not match.');
+    return;
+  }
+
+  setBtnBusy('rp-submit', true, 'Save new password', 'Saving…');
+  try{
+    const response = await fetch(API_BASE + '/api/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: RESET_EMAIL, code, newPassword: pass, confirmPassword: confirmPass })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setBtnBusy('rp-submit', false, 'Save new password', 'Saving…');
+      setInlineMessage('auth-message', 'err', data.error || 'Failed to reset password.');
+      return;
+    }
+    LAST_USERNAME = RESET_EMAIL;
+    RESET_EMAIL = '';
+    AUTH_MODE = 'login';
+    VIEW.err = '';
+    VIEW.notice = { type:'ok', text:'Password updated. You can now sign in.' };
+    render();
+  }catch(error){
+    console.error('RESET PASSWORD ERROR:', error);
+    setBtnBusy('rp-submit', false, 'Save new password', 'Saving…');
+    setInlineMessage('auth-message', 'err', "Can't reach the server. Check your connection and try again.");
+  }
+}
+
 /* ===================== SHELL ===================== */
 function renderShell(){
   const nav = CURRENT_USER.role==='admin'
-  ? [['dashboard','Dashboard'],['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reports','Reports'],['info','Profile']]
+    ? [['dashboard','Dashboard'],['rooms','Manage Rooms'],['users','Manage Users'],['approvals','Approvals'],['reports','Reports'],['info','Profile']]
     : CURRENT_USER.role==='teacher'
-? [['dashboard','Dashboard'],['status','My Room'],['reservations','Reservations'],['scan','Scan QR'],['followers','Followers'],['info','Profile']]
-    : [['dashboard','Dashboard'],['rooms','Rooms'],['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
+      ? [['dashboard','Dashboard'],['status','My Room'],['reservations','Reservations'],['scan','Scan QR'],['followers','Followers'],['info','Profile']]
+      : [['dashboard','Dashboard'],['rooms','Rooms'],['search','Find Teachers'],['follows','My Follows'],['info','Profile']];
   const vacantRooms = ROOMS.filter(room => room.status === 'vacant').length;
   return `
     <div class="shell">
@@ -980,7 +911,7 @@ function renderShell(){
 
     <main class="main">${renderMain()}</main>
   </div>
-    ${VIEW.qrModalRoomId ? renderQRModal() : ''}
+  ${VIEW.qrModalRoomId ? renderQRModal() : ''}
   ${VIEW.personModalId ? renderPersonModal() : ''}
   ${VIEW.scheduleModal ? renderScheduleModal() : ''}
   ${VIEW.checkinModal ? renderCheckinTimeModal() : ''}
@@ -989,6 +920,31 @@ function renderShell(){
   `;
 }
 
+function renderMain(){
+  if(VIEW.tab === 'dashboard'){
+    if(CURRENT_USER.role === 'admin') return renderAdminDashboard();
+    if(CURRENT_USER.role === 'teacher') return renderTeacherDashboard();
+    return renderStudentDashboard();
+  }
+  if(VIEW.tab === 'info') return renderInformation();
+  if(CURRENT_USER.role==='admin') return renderAdmin();
+  if(CURRENT_USER.role==='teacher') return renderTeacher();
+  return renderStudent();
+}
+
+function goTab(tab){
+  stopScanner();
+  if(tab !== 'info') PENDING_PROFILE_IMAGE = undefined;
+  VIEW.tab = tab;
+  VIEW.notice = null;
+
+  if(tab === 'follows' && CURRENT_USER.role === 'student'){
+    markSeen('checkins', unseenFollowedCheckins().map(l => l.id));
+    markSeen('accepted-follows', unseenAcceptedFollows().map(f => f.id));
+  }
+  persistWorkspace();
+  render();
+}
 function goToVacantRooms(){
   const targetTab = CURRENT_USER.role === 'admin' ? 'rooms' : CURRENT_USER.role === 'teacher' ? 'status' : null;
   if(!targetTab) return;
@@ -998,6 +954,7 @@ function goToVacantRooms(){
   }, 60);
 }
 
+/* ----- sidebar badges ----- */
 function getSeenSet(key){
   try{
     const raw = localStorage.getItem(`crs-seen-${key}-${CURRENT_USER.id}`);
@@ -1016,18 +973,8 @@ function markSeen(key, ids){
     console.warn('Could not save notification state.', error);
   }
 }
-function pendingReservationCount(){
-  return RESERVATIONS.filter(r => r.status === 'pending').length;
-}
-
 function pendingFollowRequestCount(){
   return FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'pending').length;
-}
-
-function unseenReservationUpdates(){
-  const mine = RESERVATIONS.filter(r => String(r.teacher_id) === String(CURRENT_USER.id) && (r.status === 'approved' || r.status === 'cancelled'));
-  const seen = getSeenSet('reservations');
-  return mine.filter(r => !seen.has(r.id));
 }
 function unseenFollowedCheckins(){
   const followedTeacherIds = FOLLOWS.filter(f => f.student_id === CURRENT_USER.id && f.status === 'accepted').map(f => f.teacher_id);
@@ -1035,13 +982,11 @@ function unseenFollowedCheckins(){
   const seen = getSeenSet('checkins');
   return logs.filter(l => !seen.has(l.id));
 }
-
 function unseenAcceptedFollows(){
   const mine = FOLLOWS.filter(f => f.student_id === CURRENT_USER.id && f.status === 'accepted');
   const seen = getSeenSet('accepted-follows');
   return mine.filter(f => !seen.has(f.id));
 }
-
 function navBadgeCount(tabKey){
   if(CURRENT_USER.role === 'admin' && tabKey === 'approvals') return PENDING_TEACHERS.length;
   if(CURRENT_USER.role === 'teacher' && tabKey === 'followers') return pendingFollowRequestCount();
@@ -1049,33 +994,7 @@ function navBadgeCount(tabKey){
   return 0;
 }
 
-function goTab(tab){
-  stopScanner();
-  if(tab !== 'info') PENDING_PROFILE_IMAGE = undefined;
-  VIEW.tab=tab;
-  VIEW.notice=null;
-  VIEW.declinedNotice = null;
-
-  if(tab === 'follows' && CURRENT_USER.role === 'student'){
-    markSeen('checkins', unseenFollowedCheckins().map(l => l.id));
-    markSeen('accepted-follows', unseenAcceptedFollows().map(f => f.id));
-  }
-  persistWorkspace();
-  render();
-}
-
-function renderMain(){
-  if(VIEW.tab === 'dashboard'){
-    if(CURRENT_USER.role === 'admin') return renderAdminDashboard();
-    if(CURRENT_USER.role === 'teacher') return renderTeacherDashboard();
-    return renderStudentDashboard();
-  }
-  if(VIEW.tab === 'info') return renderInformation();
-  if(CURRENT_USER.role==='admin') return renderAdmin();
-  if(CURRENT_USER.role==='teacher') return renderTeacher();
-  return renderStudent();
-}
-
+/* ===================== PROFILE ===================== */
 function renderInformation(){
   const user = currentUserRecord();
   const roleLabel = user.role === 'admin' ? 'Administrator' : user.role === 'teacher' ? 'Teacher' : 'Student';
@@ -1104,7 +1023,6 @@ function renderInformation(){
           <label class="photo-picker" for="profile-picture">${icon('image')}Change photo</label>
           <input class="photo-input" id="profile-picture" type="file" accept="image/png,image/jpeg,image/webp" onchange="previewProfilePicture(this)">
           <button class="btn-sm" type="button" onclick="clearProfilePicture()">${icon('close')}Remove photo</button>
-
         </div>
         <div class="profile-form">
           <div class="eyebrow">${roleLabel} profile</div>
@@ -1125,6 +1043,100 @@ function renderInformation(){
         <button class="btn-primary" type="submit" style="width:auto;min-width:160px;">${icon('save')}Change password</button>
       </form>
     </div>`;
+}
+function previewProfilePicture(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(!file.type.startsWith('image/')){
+    input.value = '';
+    setInlineMessage('profile-message', 'err', 'Choose an image file (JPG, PNG, or WebP).');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onerror = () => setInlineMessage('profile-message', 'err', 'The selected image could not be opened.');
+  reader.onload = event => {
+    const image = new Image();
+    image.onerror = () => setInlineMessage('profile-message', 'err', 'The selected image could not be processed.');
+    image.onload = () => {
+      const maxEdge = 512;
+      const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      PENDING_PROFILE_IMAGE = canvas.toDataURL('image/jpeg', .82);
+      const preview = document.getElementById('profile-photo-preview');
+      if(preview) preview.innerHTML = `<img src="${PENDING_PROFILE_IMAGE}" alt="New profile preview">`;
+      setInlineMessage('profile-message', 'ok', 'Photo ready. Save your information to keep it.');
+    };
+    image.src = event.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function clearProfilePicture(){
+  PENDING_PROFILE_IMAGE = '';
+  const preview = document.getElementById('profile-photo-preview');
+  if(preview) preview.innerHTML = `<span>${initials(CURRENT_USER?.name)}</span>`;
+  setInlineMessage('profile-message', 'warn', 'The photo will be removed when you save your information.');
+}
+async function saveProfile(){
+  const user = currentUserRecord();
+  const nameInput = document.getElementById('profile-name');
+  const name = nameInput.value.trim();
+  if(!name){ nameInput.reportValidity(); nameInput.focus(); return; }
+
+  let student_id = user.student_id || null;
+  let course = user.course || null;
+  let year = user.year || null;
+  let block = user.block || null;
+  let class_subject = user.class_subject || null;
+
+  if(user.role === 'student'){
+    const studentIdInput = document.getElementById('profile-student-id');
+    const courseInput = document.getElementById('profile-course');
+    const yearInput = document.getElementById('profile-year');
+    const blockInput = document.getElementById('profile-block');
+    if(!studentIdInput.value.trim() || !courseInput.value.trim() || !yearInput.value.trim() || !blockInput.value.trim()){
+      const firstMissing = [studentIdInput, courseInput, yearInput, blockInput].find(input => !input.value.trim());
+      firstMissing.reportValidity(); firstMissing.focus(); return;
+    }
+    if(!/^\d{6}$/.test(studentIdInput.value.trim())){
+      studentIdInput.setCustomValidity('Student ID must be exactly 6 numbers.');
+      studentIdInput.reportValidity();
+      studentIdInput.setCustomValidity('');
+      studentIdInput.focus();
+      return;
+    }
+    student_id = studentIdInput.value.trim(); course = courseInput.value.trim(); year = yearInput.value.trim(); block = blockInput.value.trim();
+  }
+  if(user.role === 'teacher'){
+    const subjectInput = document.getElementById('profile-subject');
+    if(!subjectInput.value.trim()){ subjectInput.reportValidity(); subjectInput.focus(); return; }
+    class_subject = subjectInput.value.trim();
+  }
+
+  const profile_image = PENDING_PROFILE_IMAGE !== undefined ? PENDING_PROFILE_IMAGE : (user.profile_image || null);
+
+  try{
+    const response = await fetch(`${API_BASE}/api/users/${user.id}/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, profile_image, student_id, course, year, block, class_subject })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      setInlineMessage('profile-message', 'err', data.error || 'Failed to save profile.');
+      return;
+    }
+
+    CURRENT_USER = data.user;
+    PENDING_PROFILE_IMAGE = undefined;
+    await loadUsersFromServer();
+    notifyUpdate('Your profile has been saved.', 'success', 'Profile updated');
+  }catch(error){
+    console.error('SAVE PROFILE ERROR:', error);
+    setInlineMessage('profile-message', 'err', 'Cannot connect to the server.');
+  }
 }
 async function changePassword(){
   const user = currentUserRecord();
@@ -1158,15 +1170,10 @@ async function changePassword(){
 
 /* ===================== ADMIN ===================== */
 function renderAdmin(){
-
   if(VIEW.tab==='rooms') return renderAdminRooms();
-
   if(VIEW.tab==='users') return renderAdminUsers();
-
   if(VIEW.tab==='approvals') return renderAdminApprovals();
-
   return renderAdminReports();
-
 }
 function renderAdminRooms(){
   const rooms = ROOMS;
@@ -1186,70 +1193,62 @@ function renderAdminRooms(){
   </div>
 
   <form class="card inline-form" onsubmit="event.preventDefault();addRoom()">
-      <div class="field">
-        <label>Room name</label>
-        <input id="rm-name" placeholder="Room 303" required/>
-      </div>
-
-      <div class="field">
-        <label>Building</label>
-        <input id="rm-bldg" placeholder="Main Building"/>
-      </div>
-
-      <div class="field">
-        <label>Floor</label>
-        <input id="rm-floor" placeholder="3rd Floor"/>
-      </div>
-
-      <button class="btn-sm primary" type="submit">
-  ${icon('plus')}Add room
-</button>
+    <div class="field">
+      <label>Room name</label>
+      <input id="rm-name" placeholder="Room 303" required/>
+    </div>
+    <div class="field">
+      <label>Building</label>
+      <input id="rm-bldg" placeholder="Main Building"/>
+    </div>
+    <div class="field">
+      <label>Floor</label>
+      <input id="rm-floor" placeholder="3rd Floor"/>
+    </div>
+    <button class="btn-sm primary" type="submit">${icon('plus')}Add room</button>
   </form>
 
-    ${
-    rooms.length === 0
-      ? `<div class="empty">No rooms yet. Add your first room above.</div>`
-      : `
-        ${renderScheduleGrid(true)}
-        <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
-        <div class="room-list">
-          ${rooms.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : rooms.filter(r=>r.status!=='occupied').map(r => { const scheduled = isRoomFixedScheduledNow(r.id); return `
-            <div class="room-item">
-              <div class="row-between">
-                <div class="rname">${r.name}</div>
-                <span class="badge" style="${scheduled ? 'background:#E2E2E2;color:#545454;' : 'background:var(--vacant-bg);color:var(--vacant);'}">${scheduled ? 'Scheduled now' : 'Vacant'}</span>
-              </div>
-              <div class="rloc">${r.building} · ${r.floor}</div>
-              <div style="display:flex;gap:6px;margin-top:10px;">
-                <button class="btn-sm" onclick="openQR('${r.id}')">${icon('qr')}View QR</button>
-                <button class="btn-sm danger" onclick="deleteRoom('${r.id}')">${icon('trash')}Delete</button>
-              </div>
+  ${rooms.length === 0
+    ? `<div class="empty">No rooms yet. Add your first room above.</div>`
+    : `
+      ${renderScheduleGrid(true)}
+      <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
+      <div class="room-list">
+        ${rooms.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : rooms.filter(r=>r.status!=='occupied').map(r => { const scheduled = isRoomFixedScheduledNow(r.id); return `
+          <div class="room-item">
+            <div class="row-between">
+              <div class="rname">${r.name}</div>
+              <span class="badge" style="${scheduled ? 'background:#E2E2E2;color:#545454;' : 'background:var(--vacant-bg);color:var(--vacant);'}">${scheduled ? 'Scheduled now' : 'Vacant'}</span>
             </div>
-          `; }).join('')}
-        </div>
+            <div class="rloc">${r.building} · ${r.floor}</div>
+            <div style="display:flex;gap:6px;margin-top:10px;">
+              <button class="btn-sm" onclick="openQR('${r.id}')">${icon('qr')}View QR</button>
+              <button class="btn-sm danger" onclick="deleteRoom('${r.id}')">${icon('trash')}Delete</button>
+            </div>
+          </div>
+        `; }).join('')}
+      </div>
 
-        <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Occupied rooms</h3></div>
-        <div class="room-list">
-          ${rooms.filter(r=>r.status==='occupied').length===0 ? `<div class="empty">No occupied rooms right now.</div>` : rooms.filter(r=>r.status==='occupied').map(r => `
-            <div class="room-item">
-              <div class="row-between">
-                <div class="rname">${r.name}</div>
-                <span class="badge occupied">Occupied</span>
-              </div>
-              <div class="rloc">${r.building} · ${r.floor}</div>
-              <div class="hint">In use by ${SERVER_USERS.find(u => String(u.id) === String(r.teacher_id))?.name || 'Unknown teacher'}</div>
-              <div style="display:flex;gap:6px;margin-top:10px;">
-                <button class="btn-sm" onclick="openQR('${r.id}')">${icon('qr')}View QR</button>
-                <button class="btn-sm danger" onclick="deleteRoom('${r.id}')">${icon('trash')}Delete</button>
-              </div>
+      <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Occupied rooms</h3></div>
+      <div class="room-list">
+        ${rooms.filter(r=>r.status==='occupied').length===0 ? `<div class="empty">No occupied rooms right now.</div>` : rooms.filter(r=>r.status==='occupied').map(r => `
+          <div class="room-item">
+            <div class="row-between">
+              <div class="rname">${r.name}</div>
+              <span class="badge occupied">Occupied</span>
             </div>
-          `).join('')}
-        </div>
-      `
-  }
+            <div class="rloc">${r.building} · ${r.floor}</div>
+            <div class="hint">In use by ${SERVER_USERS.find(u => String(u.id) === String(r.teacher_id))?.name || 'Unknown teacher'}</div>
+            <div style="display:flex;gap:6px;margin-top:10px;">
+              <button class="btn-sm" onclick="openQR('${r.id}')">${icon('qr')}View QR</button>
+              <button class="btn-sm danger" onclick="deleteRoom('${r.id}')">${icon('trash')}Delete</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `}
   `;
 }
-
 async function addRoom(){
   const nameInput = document.getElementById('rm-name');
   const name = nameInput.value.trim();
@@ -1309,6 +1308,8 @@ function deleteRoom(id){
     }
   });
 }
+
+/* ----- QR modal ----- */
 function openQR(roomId){ VIEW.qrModalRoomId = roomId; render(); }
 function closeQR(){ VIEW.qrModalRoomId = null; render(); }
 function renderQRModal(){
@@ -1325,7 +1326,25 @@ function renderQRModal(){
     </div>
   </div>`;
 }
+function drawQR(targetId, roomId){
+  const el = document.getElementById(targetId);
+  if(!el || typeof QRCode==='undefined') return;
 
+  const room = ROOMS.find(r => String(r.id) === String(roomId));
+  if(!room) return;
+
+  el.innerHTML = '';
+
+  new QRCode(el, {
+    text: 'CRS-ROOM-' + room.room_code,
+    width: 180,
+    height: 180,
+    colorDark: '#22201B',
+    colorLight: '#ffffff'
+  });
+}
+
+/* ----- person info modal ----- */
 function openPersonModal(userId){ VIEW.personModalId = userId; render(); }
 function closePersonModal(){ VIEW.personModalId = null; render(); }
 function renderPersonModal(){
@@ -1360,23 +1379,7 @@ function renderPersonModal(){
   </div>`;
 }
 
-function drawQR(targetId, roomId){ 
-  const el = document.getElementById(targetId); 
-  if(!el || typeof QRCode==='undefined') return; 
-
-  const room = ROOMS.find(r => String(r.id) === String(roomId));
-  if(!room) return;
-
-  el.innerHTML=''; 
-
-  new QRCode(el, { 
-    text: 'CRS-ROOM-'+room.room_code, 
-    width:180, 
-    height:180, 
-    colorDark:'#22201B', 
-    colorLight:'#ffffff' 
-  }); 
-}
+/* ----- users, approvals, reports ----- */
 function renderAdminUsers(){
   const users = SERVER_USERS;
 
@@ -1439,46 +1442,69 @@ function deleteUser(username){
     }
   });
 }
-
-function renderAdminReservations(){
-  const activeReservations = RESERVATIONS.filter(r => r.status === 'pending' || r.status === 'approved');
+function renderAdminApprovals(){
   return `
-    <div class="page-head">
-      <h2>Reservations</h2>
-      <p>Manage classroom reservation requests.</p>
-    </div>
-
-    <div class="card">
-      <div id="admin-reservation-list" class="reservation-list">
-  ${activeReservations.length === 0
-  ? `<div class="empty">No pending or approved reservations.</div>`
-  : activeReservations
-  .map(r => `
-        <article class="reservation-item">
-          <div class="row-between"><strong class="reservation-title">${r.room_name}</strong></div>
-          <div class="reservation-meta"><strong>${r.teacher_name}</strong> · ${new Date(r.start_time).toLocaleString()} — ${new Date(r.end_time).toLocaleTimeString()}</div>
+    <div class="page-head"><h2>Approvals</h2><p>Review teacher sign-up requests.</p></div>
+    <div class="card teacher-directory">
+      ${PENDING_TEACHERS.length === 0 ? `<div class="empty">No pending teacher requests.</div>` : PENDING_TEACHERS.map(t => `
+        <div class="teacher-list-item">
+          <div class="person-row">${userAvatar(t)}<div><div class="person-name">${t.name}</div><div class="person-sub">@${t.username} · wants to join as a teacher</div></div></div>
           <div class="action-row">
-          ${r.status === 'pending'
-  ? `<button class="btn-sm primary" onclick="approveReservation(${r.id})">
-       ${icon('check')}Approve
-     </button>`
-  : ''
-}
-          ${(r.status === 'pending' || r.status === 'approved')
-  ? `<button class="btn-sm danger" onclick="cancelReservation(${r.id})">
-       ${icon('close')}Cancel
-     </button>`
-  : ''
-}
+            <button class="btn-sm primary" onclick="approveTeacher(${t.id}, '${t.name}')">${icon('check')}Approve</button>
+            <button class="btn-sm danger" onclick="rejectTeacherSignup(${t.id}, '${t.name}')">${icon('close')}Reject</button>
           </div>
-        </article>
-      `).join('')
-  }
-</div>
-    </div>
-  `;
+        </div>
+      `).join('')}
+    </div>`;
 }
-
+async function approveTeacher(teacherId, teacherName){
+  requestConfirmation({
+    title:'Approve this teacher?',
+    message:`${teacherName} will be able to sign in once approved.`,
+    actionLabel:'Approve',
+    tone:'primary'
+  }, async () => {
+    try{
+      const response = await fetch(`${API_BASE}/api/users/${teacherId}/approve`, { method: 'PUT' });
+      const data = await response.json();
+      if(!response.ok){
+        queueToast(data.error || 'Failed to approve teacher.', 'error', 'Unable to approve');
+        render();
+        return;
+      }
+      await loadPendingTeachersFromServer();
+      await loadUsersFromServer();
+      notifyUpdate(`${teacherName} can now sign in.`, 'success', 'Teacher approved');
+    }catch(error){
+      console.error('APPROVE TEACHER ERROR:', error);
+      queueToast('Cannot connect to the server.', 'error', 'Unable to approve');
+      render();
+    }
+  });
+}
+async function rejectTeacherSignup(teacherId, teacherName){
+  requestConfirmation({
+    title:'Reject this teacher?',
+    message:`${teacherName} will not be able to sign in.`,
+    actionLabel:'Reject'
+  }, async () => {
+    try{
+      const response = await fetch(`${API_BASE}/api/users/${teacherId}/reject`, { method: 'PUT' });
+      const data = await response.json();
+      if(!response.ok){
+        queueToast(data.error || 'Failed to reject teacher.', 'error', 'Unable to reject');
+        render();
+        return;
+      }
+      await loadPendingTeachersFromServer();
+      notifyUpdate(`${teacherName}'s request was rejected.`, 'success', 'Teacher rejected');
+    }catch(error){
+      console.error('REJECT TEACHER ERROR:', error);
+      queueToast('Cannot connect to the server.', 'error', 'Unable to reject');
+      render();
+    }
+  });
+}
 function renderAdminReports(){
   const logs = ACTIVITY_LOGS;
   return `
@@ -1501,6 +1527,7 @@ function renderAdminReports(){
   </div>`;
 }
 
+/* ===================== SCHEDULE (Manila time) ===================== */
 const DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
 function manilaNow(){
@@ -1541,7 +1568,6 @@ function roomLive(room){
   if(isRoomFixedScheduledNow(room.id)) return { state:'scheduled' };
   return { state:'vacant' };
 }
-
 function formatTime12(t){
   if(!t) return '';
   const [h,m] = t.split(':').map(Number);
@@ -1735,12 +1761,64 @@ function myOccupiedRoom(){
     String(r.teacher_id) === String(CURRENT_USER.id)
   );
 }
+function renderTeacher(){
+  if(VIEW.tab==='status') return renderTeacherStatus();
+  if(VIEW.tab==='reservations') return renderTeacherReservations();
+  if(VIEW.tab==='scan') return renderTeacherScan();
+  return renderTeacherFollowers();
+}
+function renderTeacherStatus(){
+  const mine = myOccupiedRoom();
+  return `
+  <div class="page-head"><h2>My Room</h2><p>Your current classroom status.</p></div>
+  ${mine ? `
+  <div class="status-card">
+    <div class="status-strip occupied"></div>
+    <div class="status-body">
+      <div class="row-between">
+        <div>
+          <h3>${mine.name}</h3>
+          <p class="hint" style="margin-top:4px;">${mine.building} · ${mine.floor} · currently checked in</p>
+        </div>
+        <span class="badge occupied">Occupied</span>
+      </div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin-top:12px;">Scan this room's QR code again on the door to check out, or use the Scan QR tab.</p>
+    </div>
+  </div>` : `
+  <div class="status-card">
+    <div class="status-strip vacant"></div>
+    <div class="status-body">
+      <h3>You're not in a room right now</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin-top:8px;">Find, reserve a room and time to get started.</p>
+      <a onclick="goTab('reservations')" style="display:inline-block;margin-top:14px;font-size:13.5px;color:var(--brass);cursor:pointer;font-weight:600;">Reserve room</a>
+    </div>
+  </div>`}
+  ${renderScheduleGrid(false)}
+  <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
+  <div class="room-list">
+    ${ROOMS.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : ROOMS.filter(r=>r.status!=='occupied').map(r=>{ const scheduled = isRoomFixedScheduledNow(r.id); return `
+      <div class="room-item">
+        <div class="row-between"><div class="rname">${r.name}</div><span class="badge" style="${scheduled ? 'background:#E2E2E2;color:#545454;' : 'background:var(--vacant-bg);color:var(--vacant);'}">${scheduled ? 'Scheduled now' : 'Vacant'}</span></div>
+        <div class="rloc">${r.building} · ${r.floor}</div>
+      </div>
+    `; }).join('')}
+  </div>
+  <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Occupied rooms</h3></div>
+  <div class="room-list">
+    ${ROOMS.filter(r=>r.status==='occupied').length===0 ? `<div class="empty">No occupied rooms right now.</div>` : ROOMS.filter(r=>r.status==='occupied').map(r=>`
+      <div class="room-item">
+        <div class="row-between"><div class="rname">${r.name}</div><span class="badge occupied">Occupied</span></div>
+        <div class="rloc">${r.building} · ${r.floor}</div>
+        <div class="hint">${SERVER_USERS.find(u => String(u.id) === String(r.teacher_id))?.name || 'Unknown teacher'}</div>
+      </div>
+    `).join('')}
+  </div>`;
+}
 
+/* ----- reservations ----- */
 function renderTeacherReservations(){
   const myReservations = RESERVATIONS.filter(r => String(r.teacher_id) === String(CURRENT_USER.id) && ['pending','approved'].includes(r.status));
-  const declined = VIEW.declinedNotice || [];
   return `
-    ${declined.length > 0 ? `<p style="color:var(--occupied);font-size:12.5px;font-weight:700;margin-bottom:6px;">${declined.length === 1 ? `Your reservation for ${declined[0].room_name} was declined.` : `${declined.length} of your reservations were declined.`}</p>` : ''}
     <div class="page-head">
       <h2>Reservations</h2>
       <p>Reserve a classroom for a specific date and time.</p>
@@ -1775,43 +1853,38 @@ function renderTeacherReservations(){
         </div>
       </div>
 
-      <button class="btn-sm primary" type="submit">
-        ${icon('calendar')}Reserve room
-      </button>
+      <button class="btn-sm primary" type="submit">${icon('calendar')}Reserve room</button>
     </form>
 
-        <div id="reservation-message"></div>
+    <div id="reservation-message"></div>
 
-        <div class="page-head" style="margin-top:28px;">
+    <div class="page-head" style="margin-top:28px;">
       <h2>My Reservations</h2>
       <p>Your submitted classroom reservations.</p>
     </div>
 
-        <p class="hint" style="margin-bottom:16px;font-size:13px;">
+    <p class="hint" style="margin-bottom:16px;font-size:13px;">
       Once you've reserved a room, scan its QR code at your scheduled time to check in.
       <a onclick="goTab('scan')" style="margin-left:6px;color:var(--brass);font-weight:600;cursor:pointer;">Scan QR</a>
     </p>
 
     <div id="reservation-list" class="card">
-  ${myReservations.length === 0
-    ? `<div class="empty">No reservations yet.</div>`
-    : `<div class="reservation-list">${myReservations
-        .map(r => `
-          <article class="reservation-item">
-            <div class="row-between"><strong class="reservation-title">${r.room_name}</strong></div>
-            <div class="reservation-meta">${new Date(r.start_time).toLocaleString()} — ${new Date(r.end_time).toLocaleTimeString()}</div>
-            <div class="action-row">
-${(r.status === 'pending' || r.status === 'approved')
-  ? `<button class="btn-sm danger" onclick="cancelReservation(${r.id})">
-       ${icon('close')}Cancel reservation
-     </button>`
-  : ''
-}
-            </div>
-          </article>
-        `).join('')}</div>`
-  }
-</div>
+      ${myReservations.length === 0
+        ? `<div class="empty">No reservations yet.</div>`
+        : `<div class="reservation-list">${myReservations
+            .map(r => `
+              <article class="reservation-item">
+                <div class="row-between"><strong class="reservation-title">${r.room_name}</strong></div>
+                <div class="reservation-meta">${new Date(r.start_time).toLocaleString()} — ${new Date(r.end_time).toLocaleTimeString()}</div>
+                <div class="action-row">
+                  ${(r.status === 'pending' || r.status === 'approved')
+                    ? `<button class="btn-sm danger" onclick="cancelReservation(${r.id})">${icon('close')}Cancel reservation</button>`
+                    : ''}
+                </div>
+              </article>
+            `).join('')}</div>`
+      }
+    </div>
   `;
 }
 function focusReservationRoom(){
@@ -1819,7 +1892,6 @@ function focusReservationRoom(){
   if(el){ el.scrollIntoView({ behavior:'smooth', block:'center' }); el.focus(); }
 }
 async function createReservation(){
-
   const roomInput = document.getElementById('reservation-room');
   const dateInput = document.getElementById('reservation-date');
   const startInput = document.getElementById('reservation-start');
@@ -1867,7 +1939,6 @@ async function createReservation(){
     setInlineMessage('reservation-message', 'err', 'Cannot connect to the server.');
   }
 }
-
 function cancelReservation(reservationId){
   const reservation = RESERVATIONS.find(item => Number(item.id) === Number(reservationId));
   if(!reservation || (CURRENT_USER.role !== 'admin' && reservation.teacher_id !== CURRENT_USER.id)){
@@ -1902,40 +1973,7 @@ function cancelReservation(reservationId){
   });
 }
 
-function approveReservation(reservationId){
-  const reservation = RESERVATIONS.find(item => Number(item.id) === Number(reservationId));
-  if(!reservation || reservation.status !== 'pending'){
-    queueToast('This request is no longer pending.', 'warning', 'Unable to approve');
-    render();
-    return;
-  }
-  requestConfirmation({
-    title:'Approve this reservation?',
-    message:`${reservation.teacher_name} will be notified that ${reservation.room_name} is reserved.`,
-    actionLabel:'Approve',
-    tone:'primary'
-  }, async () => {
-    try{
-      const response = await fetch(`${API_BASE}/api/reservations/${reservationId}/approve`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await response.json();
-      if(!response.ok){
-        queueToast(data.error || 'Failed to approve reservation.', 'error', 'Unable to approve');
-        render();
-        return;
-      }
-      await loadReservationsFromServer();
-      notifyUpdate('The reservation is now approved.', 'success', 'Reservation approved');
-    }catch(error){
-      console.error('APPROVE RESERVATION ERROR:', error);
-      queueToast('Cannot connect to the server.', 'error', 'Unable to approve');
-      render();
-    }
-  });
-}
-
+/* ----- followers ----- */
 function renderTeacherFollowers(){
   const requests = FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'pending');
   const followers = FOLLOWS.filter(f => f.teacher_id === CURRENT_USER.id && f.status === 'accepted');
@@ -1960,64 +1998,46 @@ function renderTeacherFollowers(){
         </div>`).join('')}
     </div>`;
 }
-function renderTeacher(){
-  if(VIEW.tab==='status') return renderTeacherStatus();
-  if(VIEW.tab==='reservations') return renderTeacherReservations();
-  if(VIEW.tab==='scan') return renderTeacherScan();
-  return renderTeacherFollowers();
+async function approveFollow(followId){
+  try{
+    const response = await fetch(`${API_BASE}/api/follows/${followId}/approve`, { method: 'PUT' });
+    const data = await response.json();
+    if(!response.ok){
+      queueToast(data.error || 'Failed to approve follow request.', 'error', 'Unable to approve');
+      render();
+      return;
+    }
+    await loadFollowsFromServer();
+    notifyUpdate('The student can now see your room status.', 'success', 'Follower approved');
+  }catch(error){
+    console.error('APPROVE FOLLOW ERROR:', error);
+    queueToast('Cannot connect to the server.', 'error', 'Unable to approve');
+    render();
+  }
 }
-function renderTeacherStatus(){
-  const mine = myOccupiedRoom();
-  return `
-  <div class="page-head"><h2>My Room</h2><p>Your current classroom status.</p></div>
-  ${mine ? `
-  <div class="status-card">
-    <div class="status-strip occupied"></div>
-    <div class="status-body">
-      <div class="row-between">
-        <div>
-          <h3>${mine.name}</h3>
-          <p class="hint" style="margin-top:4px;">${mine.building} · ${mine.floor} · currently checked in</p>
-        </div>
-        <span class="badge occupied">Occupied</span>
-      </div>
-      <p style="font-size:12.5px;color:var(--ink-soft);margin-top:12px;">Scan this room's QR code again on the door to check out, or use the Scan QR tab.</p>
-    </div>
-  </div>` : `
-  <div class="status-card">
-    <div class="status-strip vacant"></div>
-    <div class="status-body">
-                  <h3>You're not in a room right now</h3>
-            <p style="font-size:12.5px;color:var(--ink-soft);margin-top:8px;">Find, reserve a room and time to get started.</p>
-            <a onclick="goTab('reservations')" style="display:inline-block;margin-top:14px;font-size:13.5px;color:var(--brass);cursor:pointer;font-weight:600;">Reserve room</a>
-    </div>
-  </div>`}
-        ${renderScheduleGrid(false)}
-        <div class="page-head" id="vacant-rooms-section" style="margin-top:26px;"><h3 style="font-size:16px;">Vacant rooms</h3></div>
-  <div class="room-list">
-    ${ROOMS.filter(r=>r.status!=='occupied').length===0 ? `<div class="empty">No vacant rooms right now.</div>` : ROOMS.filter(r=>r.status!=='occupied').map(r=>{ const scheduled = isRoomFixedScheduledNow(r.id); return `
-      <div class="room-item">
-        <div class="row-between"><div class="rname">${r.name}</div><span class="badge" style="${scheduled ? 'background:#E2E2E2;color:#545454;' : 'background:var(--vacant-bg);color:var(--vacant);'}">${scheduled ? 'Scheduled now' : 'Vacant'}</span></div>
-        <div class="rloc">${r.building} · ${r.floor}</div>
-      </div>
-    `; }).join('')}
-  </div>
-  <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Occupied rooms</h3></div>
-  <div class="room-list">
-    ${ROOMS.filter(r=>r.status==='occupied').length===0 ? `<div class="empty">No occupied rooms right now.</div>` : ROOMS.filter(r=>r.status==='occupied').map(r=>`
-      <div class="room-item">
-        <div class="row-between"><div class="rname">${r.name}</div><span class="badge occupied">Occupied</span></div>
-        <div class="rloc">${r.building} · ${r.floor}</div>
-        <div class="hint">${SERVER_USERS.find(u => String(u.id) === String(r.teacher_id))?.name || 'Unknown teacher'}</div>
-      </div>
-    `).join('')}
-  </div>`;
+async function rejectFollow(followId){
+  try{
+    const response = await fetch(`${API_BASE}/api/follows/${followId}/reject`, { method: 'PUT' });
+    const data = await response.json();
+    if(!response.ok){
+      queueToast(data.error || 'Failed to reject follow request.', 'error', 'Unable to decline');
+      render();
+      return;
+    }
+    await loadFollowsFromServer();
+    notifyUpdate('The follow request was declined.', 'success', 'Request declined');
+  }catch(error){
+    console.error('REJECT FOLLOW ERROR:', error);
+    queueToast('Cannot connect to the server.', 'error', 'Unable to decline');
+    render();
+  }
 }
 
+/* ----- QR scan / check-in ----- */
 function renderTeacherScan(){
   const mine = myOccupiedRoom();
   return `
-   <div class="page-head"><h2>Scan Room QR</h2><p>Scan the code on the classroom door to check in — scan it again to check out.</p></div>
+  <div class="page-head"><h2>Scan Room QR</h2><p>Scan the code on the classroom door to check in — scan it again to check out.</p></div>
   <p class="hint" style="margin-bottom:14px;">Even if a room has a fixed class scheduled, you can still check in — scan its QR, enter your time, then choose "Room's empty, check in instead."</p>
   ${VIEW.notice ? `<div class="msg-banner ${VIEW.notice.type}">${VIEW.notice.text}</div>` : ''}
   <div class="card">
@@ -2032,7 +2052,7 @@ function renderTeacherScan(){
         <button class="btn-sm primary" onclick="beginScanner()">${icon('camera')}Open camera to scan</button>
       `}
     </div>
-        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+    <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
       <p class="hint" style="margin-bottom:8px;">No camera access? Search for the room instead.</p>
       <div class="field" style="max-width:340px;margin-bottom:10px;">
         <input placeholder="Search room by name" value="${VIEW.scanRoomQ||''}" oninput="setScanRoomQ(this.value, this.selectionStart)"/>
@@ -2043,7 +2063,7 @@ function renderTeacherScan(){
           const matches = ROOMS.filter(r => r.name.toLowerCase().includes(q));
           if(matches.length===0) return `<p class="hint">No rooms match your search.</p>`;
           return matches.map(r => `
-                        <button type="button" class="btn-sm" style="text-align:left;" onclick="manualScanRoom('${r.room_code}')">
+            <button type="button" class="btn-sm" style="text-align:left;" onclick="manualScanRoom('${r.room_code}')">
               ${r.name}<span class="hint" style="margin-left:6px;">${[r.building, r.floor].filter(Boolean).join(' · ')}</span>
             </button>
           `).join('');
@@ -2097,7 +2117,6 @@ function stopScanner(){
   if(SCAN.raf) cancelAnimationFrame(SCAN.raf);
   if(SCAN.stream){ SCAN.stream.getTracks().forEach(t=>t.stop()); SCAN.stream=null; }
 }
-
 async function handleScannedCode(data){
   stopScanner();
   const match = /^CRS-ROOM-(.+)$/.exec((data || '').trim());
@@ -2148,7 +2167,6 @@ async function handleScannedCode(data){
     render();
   }
 }
-
 async function attemptCheckin(room, endTime, force){
   try{
     const response = await fetch(`${API_BASE}/api/rooms/${room.id}/checkin`, {
@@ -2191,7 +2209,6 @@ async function attemptCheckin(room, endTime, force){
     render();
   }
 }
-
 function openCheckinTimeModal(room){
   VIEW.checkinModal = { roomId: room.id, roomName: room.name };
   render();
@@ -2226,586 +2243,12 @@ async function submitCheckinTime(){
   render();
   if(room) await attemptCheckin(room, value, false);
 }
+
 /* ===================== STUDENT ===================== */
 function renderStudent(){
-  if(VIEW.tab==='rooms') return renderStudentRooms(); if(VIEW.tab==='search') return renderStudentSearch();
+  if(VIEW.tab==='rooms') return renderStudentRooms();
+  if(VIEW.tab==='search') return renderStudentSearch();
   return renderStudentFollows();
-}
-function renderStudentSearch(){
-  const q = (VIEW.searchQ||'').toLowerCase();
-  const allTeachers = SERVER_USERS.filter(u => String(u.role).toLowerCase() === 'teacher');
-  const teachers = allTeachers.filter(u => String(u.name).toLowerCase().includes(q));
-  return `
-  <div class="page-head"><h2>Find Teachers</h2><p>Browse the teacher directory and follow the people you want to track.</p></div>
-  <div class="field search-field" style="max-width:340px;margin-bottom:20px;">
-    <input placeholder="Search teacher by name" value="${VIEW.searchQ||''}" oninput="setSearchQ(this.value, this.selectionStart)"/>
-  </div>
-  <div class="card teacher-directory">
-    <div class="teacher-directory-head">
-      <h3>Teacher directory</h3>
-      <span class="teacher-count">${teachers.length} ${teachers.length===1?'teacher':'teachers'}</span>
-    </div>
-    ${!DATA_STATUS.users
-      ? `<div class="empty" style="border:0;border-radius:0;">The teacher directory could not be loaded. Refresh when the server is available.</div>`
-      : teachers.length===0
-        ? `<div class="empty" style="border:0;border-radius:0;">${allTeachers.length===0 ? 'No teacher accounts are registered yet.' : 'No teachers match your search yet.'}</div>`
-        : teachers.map(t=>{
-    const f = FOLLOWS.find(x =>
-    x.student_id === CURRENT_USER.id &&
-    x.teacher_id === t.id
-);
-    let action;
-    if(!f) action = `<button class="btn-sm primary" onclick="followTeacher('${t.username}')">${icon('follow')}Follow</button>`;
-    else if(f.status==='pending') action = `<span class="badge pending">Requested</span>`;
-    else if(f.status==='accepted') action = `<button class="btn-sm danger" onclick="unfollowTeacher(${t.id})">${icon('close')}Unfollow</button>`;
-    else action = `<button class="btn-sm" onclick="followTeacher('${t.username}')">${icon('follow')}Request again</button>`;
-    return `
-        <div class="teacher-list-item">
-      <div class="person-row" style="cursor:pointer;" onclick="openPersonModal(${t.id})">
-        ${userAvatar(t)}
-        <div>
-          <div class="person-name">${t.name}</div>
-          <div class="person-sub">Teacher · @${t.username}</div>
-        </div>
-      </div>
-      <div class="action-row">
-        <button class="btn-sm" onclick="openPersonModal(${t.id})">${icon('info')}View info</button>
-        ${action}
-      </div>
-    </div>`;
-  }).join('')}
-  </div>
-  `;
-}
-function setSearchQ(v, pos){
-  VIEW.searchQ = v;
-  persistWorkspace();
-  render();
-  const input = document.querySelector('.field input');
-  if(input){
-    input.focus();
-    input.setSelectionRange(pos, pos);
-  }
-}
-
-function unfollowTeacher(teacherId){
-    const follow = FOLLOWS.find(f => f.student_id === CURRENT_USER.id && f.teacher_id === teacherId);
-    if(!follow) return;
-
-    requestConfirmation({
-        title:'Unfollow this teacher?',
-        message:`You'll no longer see ${follow.teacher_name}'s room status.`,
-        actionLabel:'Unfollow'
-    }, async () => {
-        try{
-            const response = await fetch(`${API_BASE}/api/follows/${follow.id}`, { method: 'DELETE' });
-            const data = await response.json();
-            if(!response.ok){
-                queueToast(data.error || 'Failed to unfollow.', 'error', 'Unable to unfollow');
-                render();
-                return;
-            }
-            await loadFollowsFromServer();
-            notifyUpdate(`You unfollowed ${follow.teacher_name}.`, 'success', 'Unfollowed');
-        }catch(error){
-            console.error('UNFOLLOW ERROR:', error);
-            queueToast('Cannot connect to the server.', 'error', 'Unable to unfollow');
-            render();
-        }
-    });
-}
-
-async function followTeacher(teacherUsername){
-    const teacher = SERVER_USERS.find(
-        u => u.username === teacherUsername
-    );
-
-    if(!teacher){
-        queueToast('This teacher account is no longer available.', 'error', 'Unable to follow');
-        render();
-        return;
-    }
-
-    try{
-        const response = await fetch(API_BASE + '/api/follows', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ student_id: CURRENT_USER.id, teacher_id: teacher.id })
-        });
-        const data = await response.json();
-        if(!response.ok){
-            queueToast(data.error || 'Failed to send follow request.', 'error', 'Unable to follow');
-            render();
-            return;
-        }
-        await loadFollowsFromServer();
-        notifyUpdate(`Your follow request for ${teacher.name} is pending approval.`, 'success', 'Request sent');
-    }catch(error){
-        console.error('FOLLOW ERROR:', error);
-        queueToast('Cannot connect to the server.', 'error', 'Unable to follow');
-        render();
-    }
-}
-
-async function approveFollow(followId){
-    try{
-        const response = await fetch(`${API_BASE}/api/follows/${followId}/approve`, { method: 'PUT' });
-        const data = await response.json();
-        if(!response.ok){
-            queueToast(data.error || 'Failed to approve follow request.', 'error', 'Unable to approve');
-            render();
-            return;
-        }
-        await loadFollowsFromServer();
-        notifyUpdate('The student can now see your room status.', 'success', 'Follower approved');
-    }catch(error){
-        console.error('APPROVE FOLLOW ERROR:', error);
-        queueToast('Cannot connect to the server.', 'error', 'Unable to approve');
-        render();
-    }
-}
-
-async function rejectFollow(followId){
-    try{
-        const response = await fetch(`${API_BASE}/api/follows/${followId}/reject`, { method: 'PUT' });
-        const data = await response.json();
-        if(!response.ok){
-            queueToast(data.error || 'Failed to reject follow request.', 'error', 'Unable to decline');
-            render();
-            return;
-        }
-        await loadFollowsFromServer();
-        notifyUpdate('The follow request was declined.', 'success', 'Request declined');
-    }catch(error){
-        console.error('REJECT FOLLOW ERROR:', error);
-        queueToast('Cannot connect to the server.', 'error', 'Unable to decline');
-        render();
-    }
-}
-
-function renderStudentFollows(){
-    const mine = FOLLOWS.filter(
-        f => f.student_id === CURRENT_USER.id
-    );
-
-    if(mine.length === 0) return `
-        <div class="page-head">
-            <h2>My Follows</h2>
-            <p>Teachers you're tracking.</p>
-        </div>
-
-        <div class="empty">
-            You're not following any teacher yet.
-            Go to Find Teachers to send a request.
-        </div>
-    `;
-
-    return `
-        <div class="page-head">
-            <h2>My Follows</h2>
-            <p>Live room status for teachers you follow.</p>
-        </div>
-
-        ${mine.map(f => {
-
-            if(f.status === 'pending') return `
-                <div class="status-card">
-                    <div class="status-strip pending"></div>
-                    <div class="status-body">
-                        <div class="row-between">
-                            <h3 style="font-size:15.5px;">
-                                ${f.teacher_name}
-                            </h3>
-                            <span class="badge pending">
-                                Waiting for approval
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            if(f.status === 'rejected') return `
-                <div class="status-card">
-                    <div class="status-strip occupied"></div>
-                    <div class="status-body">
-                        <div class="row-between">
-                            <h3 style="font-size:15.5px;">
-                                ${f.teacher_name}
-                            </h3>
-                            <span class="badge occupied">
-                                Request declined
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            const room = ROOMS.find(
-                r => r.teacher_id === f.teacher_id &&
-                     r.status === 'occupied'
-            );
-
-            if(room) return `
-                <div class="status-card">
-                    <div class="status-strip occupied"></div>
-                    <div class="status-body">
-                        <div class="row-between">
-                            <div>
-                                <h3 style="font-size:15.5px;">
-                                    ${f.teacher_name}
-                                </h3>
-
-                                <p class="hint" style="margin-top:3px;">
-                                    ${room.name} · ${room.building}
-                                </p>
-                            </div>
-
-                            <span class="badge occupied">
-                                In a room
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            return `
-                <div class="status-card">
-                    <div class="status-strip vacant"></div>
-                    <div class="status-body">
-                        <div class="row-between">
-                            <h3 style="font-size:15.5px;">
-                                ${f.teacher_name}
-                            </h3>
-
-                            <span class="badge vacant">
-                                Not in a room
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-        }).join('')}
-    `;
-}
-
-/* ===================== POLLING (live-ish updates) ===================== */
-let POLL_TIMER = null;
-function startPolling(){
-  stopPolling();
-  POLL_TIMER = setInterval(async ()=>{
-    const active = document.activeElement;
-    const typing = active && (active.tagName==='INPUT' || active.tagName==='SELECT' || active.tagName==='TEXTAREA');
-    if(typing || SCAN.active || VIEW.confirm || VIEW.tab === 'info' || VIEW.scheduleModal || VIEW.checkinModal || document.querySelector('#reservation-message .msg-banner')) return;
-
-    await loadRoomsFromServer();
-    await loadReservationsFromServer();
-    await loadActivityLogsFromServer();
-    await loadFollowsFromServer();
-    await loadUsersFromServer();
-    await loadSchedulesFromServer();
-    if(CURRENT_USER.role === 'admin'){
-      await loadPendingTeachersFromServer();
-    }
-
-    if(CURRENT_USER && !SERVER_USERS.some(u => String(u.id) === String(CURRENT_USER.id))){
-      performLogout();
-      AUTH_MODE = 'login';
-      VIEW.err = "You've been removed by the admin.";
-      render();
-      return;
-    }
-
-    render();
-  }, 4000);
-}
-function stopPolling(){ if(POLL_TIMER) clearInterval(POLL_TIMER); POLL_TIMER=null; }
-
-/* ===================== BOOT / REFRESH RESTORE ===================== */
-function wait(ms){ return new Promise(resolve => window.setTimeout(resolve, ms)); }
-async function restoreWorkspace(){
-  const saved = getPersistedWorkspace();
-
-  if(!saved){
-    
-    setLoading(false);
-    render();
-    return;
-  }
-
-  CURRENT_USER = saved.user;
-  const tab = allowedTabs(CURRENT_USER.role).includes(saved.tab)
-    ? saved.tab
-    : defaultTab(CURRENT_USER.role);
-  VIEW = {
-    screen: CURRENT_USER.role,
-    tab,
-    err: '',
-    notice: null,
-    searchQ: saved.searchQ || ''
-  };
-
-  setLoading(true, 'Restoring your workspace', 'Loading your live classroom data and saved view.');
-  render();
-  await loadWorkspaceData();
-  setLoading(false);
-  persistWorkspace();
-  render();
-  startPolling();
-}
-
-(async function boot(){
-  render();
-  await restoreWorkspace();
-})();
-
-window.addEventListener('pageshow', function(event){
-  if(event.persisted){
-    stopPolling();
-    stopScanner();
-    restoreWorkspace();
-  }
-});
-window.addEventListener('error', function(ev){
-  const app = document.getElementById('app');
-  if(app && !app.innerHTML.trim()){
-    app.innerHTML = `<div style="max-width:520px;margin:60px auto;padding:24px;font-family:sans-serif;">
-      <h2 style="font-family:serif;">The app didn't load</h2>
-      <p style="color:#6B6355;">${ev.message || 'A script failed to load or run.'}</p>
-      <button onclick="location.reload()" style="margin-top:12px;padding:8px 14px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer;">Reload</button>
-    </div>`;
-  }
-});
-async function doLogin(){
-  const submitBtn = document.getElementById('li-submit');
-  if(submitBtn && submitBtn.disabled) return;
-
-  const u = document.getElementById('li-user').value.trim();
-  const p = document.getElementById('li-pass').value;
-  const remember = document.getElementById('li-remember').checked;
-
-  LAST_USERNAME = u;
-
-  if(!u || !p){
-    VIEW.err = 'Please enter your email and password.';
-    render();
-    return;
-  }
-
-  REMEMBER_ME = remember;
-  try{
-    localStorage.setItem('crs-remember-me', remember ? '1' : '0');
-    localStorage.setItem('crs-last-username', u);
-  }catch(e){}
-
-  setLoginBusy(true);
-  try{
-    const response = await fetch(API_BASE + '/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: u, password: p })
-    });
-    const data = await response.json();
-    setLoginBusy(false);
-
-    if(!response.ok){
-      VIEW.err = data.error || 'Incorrect email or password.';
-      render();
-      return;
-    }
-
-    CURRENT_USER = data.user;
-    setLoading(true, 'Opening your workspace', 'Signing you in.');
-    render();
-    await Promise.all([loadWorkspaceData(), wait(450)]);
-
-    setLoading(false);
-    VIEW = {
-      screen: CURRENT_USER.role,
-      tab: defaultTab(CURRENT_USER.role),
-      err: ''
-    };
-
-    persistWorkspace();
-    render();
-    startPolling();
-
-  }catch(error){
-    console.error(error);
-    setLoginBusy(false);
-    VIEW.err = "Can't reach the server. Check your connection and try again.";
-    render();
-  }
-}
-let RESET_EMAIL = '';
-
-function setBtnBusy(id, busy, idleText, busyText){
-  const btn = document.getElementById(id);
-  if(!btn) return;
-  btn.disabled = busy;
-  btn.classList.toggle('loading', busy);
-  btn.textContent = busy ? busyText : idleText;
-}
-
-function renderForgotForm(){
-  return `
-    <form onsubmit="event.preventDefault();doForgotPassword()">
-      <p class="hint" style="margin-top:16px;">Enter your account email and we'll send you a 6-digit code.</p>
-      <div class="field">
-        <label for="fp-email">Email</label>
-        <input id="fp-email" type="email" value="${escapeAttr(RESET_EMAIL || LAST_USERNAME)}" placeholder="e.g. juandelacruz@mabinicolleges.edu.ph" autocomplete="username" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" required/>
-      </div>
-      <div id="auth-message" aria-live="polite" style="margin-top:16px;"></div>
-      <button class="btn-primary" id="fp-submit" type="submit">Send reset code</button>
-    </form>
-    <div class="switch-line"><a onclick="switchAuth('login')">Back to sign in</a></div>
-  `;
-}
-
-function renderResetForm(){
-  return `
-    <form onsubmit="event.preventDefault();doResetPassword()">
-      <p class="hint" style="margin-top:16px;">We sent a 6-digit code to <strong>${escapeAttr(RESET_EMAIL)}</strong>. Enter it below with your new password.</p>
-      <div class="field"><label for="rp-code">Reset code</label><input id="rp-code" placeholder="123456" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required/></div>
-      <div class="field"><label for="rp-pass">New password</label><input id="rp-pass" type="password" placeholder="At least 8 characters" autocomplete="new-password" required/></div>
-      <div class="field"><label for="rp-confirm">Confirm new password</label><input id="rp-confirm" type="password" placeholder="Re-enter your new password" autocomplete="new-password" required/></div>
-      <div id="auth-message" aria-live="polite" style="margin-top:16px;"></div>
-      <button class="btn-primary" id="rp-submit" type="submit">Save new password</button>
-    </form>
-    <div class="switch-line">Didn't get a code? <a onclick="doForgotPassword(true)">Send again</a></div>
-    <div class="switch-line"><a onclick="switchAuth('login')">Back to sign in</a></div>
-  `;
-}
-
-async function doForgotPassword(resend){
-  const input = document.getElementById('fp-email');
-  const email = resend ? RESET_EMAIL : (input ? input.value.trim() : '');
-  if(!email){
-    setInlineMessage('auth-message', 'err', 'Please enter your email.');
-    return;
-  }
-  RESET_EMAIL = email;
-
-  setBtnBusy('fp-submit', true, 'Send reset code', 'Sending…');
-  try{
-    const response = await fetch(API_BASE + '/api/forgot-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    });
-    const data = await response.json();
-    if(!response.ok){
-      setBtnBusy('fp-submit', false, 'Send reset code', 'Sending…');
-      setInlineMessage('auth-message', 'err', data.error || 'Failed to send reset code.');
-      return;
-    }
-    AUTH_MODE = 'reset';
-    VIEW.err = '';
-    VIEW.notice = { type:'ok', text:'If that email is registered, a reset code is on its way.' };
-    render();
-  }catch(error){
-    console.error('FORGOT PASSWORD ERROR:', error);
-    setBtnBusy('fp-submit', false, 'Send reset code', 'Sending…');
-    setInlineMessage('auth-message', 'err', "Can't reach the server. Check your connection and try again.");
-  }
-}
-
-async function doResetPassword(){
-  const code = document.getElementById('rp-code').value.trim();
-  const pass = document.getElementById('rp-pass').value;
-  const confirmPass = document.getElementById('rp-confirm').value;
-
-  if(pass.length < 8){
-    setInlineMessage('auth-message', 'err', 'Password must be at least 8 characters.');
-    return;
-  }
-  if(pass !== confirmPass){
-    setInlineMessage('auth-message', 'err', 'Passwords do not match.');
-    return;
-  }
-
-  setBtnBusy('rp-submit', true, 'Save new password', 'Saving…');
-  try{
-    const response = await fetch(API_BASE + '/api/reset-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: RESET_EMAIL, code, newPassword: pass, confirmPassword: confirmPass })
-    });
-    const data = await response.json();
-    if(!response.ok){
-      setBtnBusy('rp-submit', false, 'Save new password', 'Saving…');
-      setInlineMessage('auth-message', 'err', data.error || 'Failed to reset password.');
-      return;
-    }
-    LAST_USERNAME = RESET_EMAIL;
-    RESET_EMAIL = '';
-    AUTH_MODE = 'login';
-    VIEW.err = '';
-    VIEW.notice = { type:'ok', text:'Password updated. You can now sign in.' };
-    render();
-  }catch(error){
-    console.error('RESET PASSWORD ERROR:', error);
-    setBtnBusy('rp-submit', false, 'Save new password', 'Saving…');
-    setInlineMessage('auth-message', 'err', "Can't reach the server. Check your connection and try again.");
-  }
-}
-function renderLogin(){
-  const isLogin = AUTH_MODE==='login';
-  const isVerify = AUTH_MODE==='verify';
-  const isForgot = AUTH_MODE==='forgot';
-  const isReset = AUTH_MODE==='reset';
-  const titleText = isLogin ? 'Welcome back' : isVerify ? 'Verify your email' : isForgot ? 'Forgot password?' : isReset ? 'Set a new password' : 'Create your account';
-  const subText = isLogin ? 'Sign in to start your session.' : isVerify ? 'Enter the code we sent you.' : isForgot ? "We'll email you a code to reset it." : isReset ? 'Enter the code and choose a new password.' : 'Join your classroom workspace in a few steps.';
-  const showSwitch = !isVerify && !isForgot && !isReset;
-  return `
-  <div class="login-shell">
-    <aside class="brand-panel">
-      <div class="brand-line">
-        <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;"></div>
-        <div>
-          <div class="brand-name">Classroom Reservation</div>
-          <div class="brand-school">MC SPACE MANAGEMENT</div>
-        </div>
-      </div>
-      <div class="brand-copy">
-        <div class="eyebrow">Campus operations</div>
-        <h1>Every classroom, clear and accounted for.</h1>
-        <p>Reserve rooms, check in at the door, and keep the campus schedule simple for everyone.</p>
-        <div class="stats-row" aria-label="System features">
-          <div class="mini-stat"><strong>Live</strong><span>availability</span></div>
-          <div class="mini-stat"><strong>QR</strong><span>check-in</span></div>
-          <div class="mini-stat"><strong>Easy</strong><span>reservations</span></div>
-        </div>
-      </div>
-    </aside>
-    <main class="login-panel">
-      <div class="login-form">
-        <div class="mobile-brand">
-          <div class="mark"><img src="logo.png" alt="Classroom Reservation logo" style="width:100%;height:100%;object-fit:contain;"></div>
-          <div><div class="brand-name">Classroom Reservation</div><div class="brand-school">MC SPACE MANAGEMENT</div></div>
-        </div>
-
-        <div class="login-card">
-          <div class="plate">
-            <div class="plate-num">CRS</div>
-            <div>
-              <div class="eyebrow">Campus operations</div>
-              <div class="plate-title">${titleText}</div>
-              <div class="plate-sub">${subText}</div>
-            </div>
-          </div>
-          ${VIEW.err ? `<div class="err" role="alert">${VIEW.err}</div>` : ''}
-          ${VIEW.notice ? `<div class="msg-banner ${VIEW.notice.type}">${VIEW.notice.text}</div>` : ''}
-          ${isVerify ? renderVerifyForm() : isForgot ? renderForgotForm() : isReset ? renderResetForm() : isLogin ? renderLoginForm() : renderRegisterForm()}
-          ${showSwitch ? `
-          <div class="switch-line">
-            ${isLogin ? `New here? <a onclick="switchAuth('register')">Sign up</a>`
-                      : `Already have an account? <a onclick="switchAuth('login')">Sign in</a>`}
-          </div>` : ''}
-        </div>
-      </div>
-    </main>
-  </div>`;
 }
 function renderStudentRooms(){
   const vacant = ROOMS.filter(r => r.status !== 'occupied');
@@ -2847,3 +2290,243 @@ function renderStudentRooms(){
     `).join('')}
   </div>`;
 }
+function renderStudentSearch(){
+  const q = (VIEW.searchQ||'').toLowerCase();
+  const allTeachers = SERVER_USERS.filter(u => String(u.role).toLowerCase() === 'teacher');
+  const teachers = allTeachers.filter(u => String(u.name).toLowerCase().includes(q));
+  return `
+  <div class="page-head"><h2>Find Teachers</h2><p>Browse the teacher directory and follow the people you want to track.</p></div>
+  <div class="field search-field" style="max-width:340px;margin-bottom:20px;">
+    <input placeholder="Search teacher by name" value="${VIEW.searchQ||''}" oninput="setSearchQ(this.value, this.selectionStart)"/>
+  </div>
+  <div class="card teacher-directory">
+    <div class="teacher-directory-head">
+      <h3>Teacher directory</h3>
+      <span class="teacher-count">${teachers.length} ${teachers.length===1?'teacher':'teachers'}</span>
+    </div>
+    ${!DATA_STATUS.users
+      ? `<div class="empty" style="border:0;border-radius:0;">The teacher directory could not be loaded. Refresh when the server is available.</div>`
+      : teachers.length===0
+        ? `<div class="empty" style="border:0;border-radius:0;">${allTeachers.length===0 ? 'No teacher accounts are registered yet.' : 'No teachers match your search yet.'}</div>`
+        : teachers.map(t=>{
+            const f = FOLLOWS.find(x => x.student_id === CURRENT_USER.id && x.teacher_id === t.id);
+            let action;
+            if(!f) action = `<button class="btn-sm primary" onclick="followTeacher('${t.username}')">${icon('follow')}Follow</button>`;
+            else if(f.status==='pending') action = `<span class="badge pending">Requested</span>`;
+            else if(f.status==='accepted') action = `<button class="btn-sm danger" onclick="unfollowTeacher(${t.id})">${icon('close')}Unfollow</button>`;
+            else action = `<button class="btn-sm" onclick="followTeacher('${t.username}')">${icon('follow')}Request again</button>`;
+            return `
+            <div class="teacher-list-item">
+              <div class="person-row" style="cursor:pointer;" onclick="openPersonModal(${t.id})">
+                ${userAvatar(t)}
+                <div>
+                  <div class="person-name">${t.name}</div>
+                  <div class="person-sub">Teacher · @${t.username}</div>
+                </div>
+              </div>
+              <div class="action-row">
+                <button class="btn-sm" onclick="openPersonModal(${t.id})">${icon('info')}View info</button>
+                ${action}
+              </div>
+            </div>`;
+          }).join('')}
+  </div>
+  `;
+}
+function setSearchQ(v, pos){
+  VIEW.searchQ = v;
+  persistWorkspace();
+  render();
+  const input = document.querySelector('.field input');
+  if(input){
+    input.focus();
+    input.setSelectionRange(pos, pos);
+  }
+}
+function unfollowTeacher(teacherId){
+  const follow = FOLLOWS.find(f => f.student_id === CURRENT_USER.id && f.teacher_id === teacherId);
+  if(!follow) return;
+
+  requestConfirmation({
+    title:'Unfollow this teacher?',
+    message:`You'll no longer see ${follow.teacher_name}'s room status.`,
+    actionLabel:'Unfollow'
+  }, async () => {
+    try{
+      const response = await fetch(`${API_BASE}/api/follows/${follow.id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if(!response.ok){
+        queueToast(data.error || 'Failed to unfollow.', 'error', 'Unable to unfollow');
+        render();
+        return;
+      }
+      await loadFollowsFromServer();
+      notifyUpdate(`You unfollowed ${follow.teacher_name}.`, 'success', 'Unfollowed');
+    }catch(error){
+      console.error('UNFOLLOW ERROR:', error);
+      queueToast('Cannot connect to the server.', 'error', 'Unable to unfollow');
+      render();
+    }
+  });
+}
+async function followTeacher(teacherUsername){
+  const teacher = SERVER_USERS.find(u => u.username === teacherUsername);
+
+  if(!teacher){
+    queueToast('This teacher account is no longer available.', 'error', 'Unable to follow');
+    render();
+    return;
+  }
+
+  try{
+    const response = await fetch(API_BASE + '/api/follows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ student_id: CURRENT_USER.id, teacher_id: teacher.id })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      queueToast(data.error || 'Failed to send follow request.', 'error', 'Unable to follow');
+      render();
+      return;
+    }
+    await loadFollowsFromServer();
+    notifyUpdate(`Your follow request for ${teacher.name} is pending approval.`, 'success', 'Request sent');
+  }catch(error){
+    console.error('FOLLOW ERROR:', error);
+    queueToast('Cannot connect to the server.', 'error', 'Unable to follow');
+    render();
+  }
+}
+function renderStudentFollows(){
+  const mine = FOLLOWS.filter(f => f.student_id === CURRENT_USER.id);
+
+  if(mine.length === 0) return `
+    <div class="page-head">
+      <h2>My Follows</h2>
+      <p>Teachers you're tracking.</p>
+    </div>
+
+    <div class="empty">
+      You're not following any teacher yet.
+      Go to Find Teachers to send a request.
+    </div>
+  `;
+
+  return `
+    <div class="page-head">
+      <h2>My Follows</h2>
+      <p>Live room status for teachers you follow.</p>
+    </div>
+
+    ${mine.map(f => {
+      if(f.status === 'pending') return `
+        <div class="status-card">
+          <div class="status-strip pending"></div>
+          <div class="status-body">
+            <div class="row-between">
+              <h3 style="font-size:15.5px;">${f.teacher_name}</h3>
+              <span class="badge pending">Waiting for approval</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      if(f.status === 'rejected') return `
+        <div class="status-card">
+          <div class="status-strip occupied"></div>
+          <div class="status-body">
+            <div class="row-between">
+              <h3 style="font-size:15.5px;">${f.teacher_name}</h3>
+              <span class="badge occupied">Request declined</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const room = ROOMS.find(r => r.teacher_id === f.teacher_id && r.status === 'occupied');
+
+      if(room) return `
+        <div class="status-card">
+          <div class="status-strip occupied"></div>
+          <div class="status-body">
+            <div class="row-between">
+              <div>
+                <h3 style="font-size:15.5px;">${f.teacher_name}</h3>
+                <p class="hint" style="margin-top:3px;">${room.name} · ${room.building}</p>
+              </div>
+              <span class="badge occupied">In a room</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      return `
+        <div class="status-card">
+          <div class="status-strip vacant"></div>
+          <div class="status-body">
+            <div class="row-between">
+              <h3 style="font-size:15.5px;">${f.teacher_name}</h3>
+              <span class="badge vacant">Not in a room</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('')}
+  `;
+}
+
+/* ===================== POLLING (live-ish updates) ===================== */
+function startPolling(){
+  stopPolling();
+  POLL_TIMER = setInterval(async ()=>{
+    const active = document.activeElement;
+    const typing = active && (active.tagName==='INPUT' || active.tagName==='SELECT' || active.tagName==='TEXTAREA');
+    if(typing || SCAN.active || VIEW.confirm || VIEW.tab === 'info' || VIEW.scheduleModal || VIEW.checkinModal || document.querySelector('#reservation-message .msg-banner')) return;
+
+    await loadRoomsFromServer();
+    await loadReservationsFromServer();
+    await loadActivityLogsFromServer();
+    await loadFollowsFromServer();
+    await loadUsersFromServer();
+    await loadSchedulesFromServer();
+    if(CURRENT_USER.role === 'admin'){
+      await loadPendingTeachersFromServer();
+    }
+
+    if(CURRENT_USER && !SERVER_USERS.some(u => String(u.id) === String(CURRENT_USER.id))){
+      performLogout();
+      AUTH_MODE = 'login';
+      VIEW.err = "You've been removed by the admin.";
+      render();
+      return;
+    }
+
+    render();
+  }, 4000);
+}
+function stopPolling(){ if(POLL_TIMER) clearInterval(POLL_TIMER); POLL_TIMER=null; }
+
+/* ===================== BOOT ===================== */
+(async function boot(){
+  render();
+  await restoreWorkspace();
+})();
+
+window.addEventListener('pageshow', function(event){
+  if(event.persisted){
+    stopPolling();
+    stopScanner();
+    restoreWorkspace();
+  }
+});
+window.addEventListener('error', function(ev){
+  const app = document.getElementById('app');
+  if(app && !app.innerHTML.trim()){
+    app.innerHTML = `<div style="max-width:520px;margin:60px auto;padding:24px;font-family:sans-serif;">
+      <h2 style="font-family:serif;">The app didn't load</h2>
+      <p style="color:#6B6355;">${ev.message || 'A script failed to load or run.'}</p>
+      <button onclick="location.reload()" style="margin-top:12px;padding:8px 14px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer;">Reload</button>
+    </div>`;
+  }
+});

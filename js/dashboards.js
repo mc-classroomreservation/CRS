@@ -276,23 +276,3 @@ function renderStudentDashboard(){
     </div>
   `;
 }
-
-/* ---------- Login greeting: "Welcome" (first time) / "Welcome back" (returning) ---------- */
-function isReturningUser(){
-  try{ return localStorage.getItem('crs-returning') === '1'; }catch(e){ return false; }
-}
-function markReturningUser(){
-  try{ localStorage.setItem('crs-returning', '1'); }catch(e){}
-}
-// Any successful sign-in (or restored session) ends up calling persistWorkspace()
-const _persistWorkspace = persistWorkspace;
-persistWorkspace = function(){
-  if(CURRENT_USER) markReturningUser();
-  return _persistWorkspace.apply(this, arguments);
-};
-const _renderLogin = renderLogin;
-renderLogin = function(){
-  const html = _renderLogin();
-  if(typeof AUTH_MODE !== 'undefined' && AUTH_MODE !== 'login') return html;
-  return html.replace(/(<div class="plate-title">)[^<]*(<\/div>)/, '$1' + (isReturningUser() ? 'Welcome back' : 'Welcome') + '$2');
-};
