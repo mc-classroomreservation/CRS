@@ -212,7 +212,7 @@
   .brand-line{position:relative;z-index:1;display:flex;align-items:center;gap:12px;}
   .mark{display:grid;place-items:center;width:44px;height:44px;flex:0 0 auto;border:0;border-radius:0;background:none;color:#fff;box-shadow:none;font-size:12px;font-weight:800;overflow:visible;}
   .brand-name{font-size:15px;font-weight:800;letter-spacing:-.02em;}
-  .brand-school{margin-top:2px;color:rgba(255,255,255,.62);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;}
+  .brand-school{margin-top:2px;color:rgba(255, 0, 0, 0.62);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;}
   .brand-copy{position:relative;z-index:1;max-width:480px;margin:auto 0;}
   .brand-copy .eyebrow{color:#fff;margin-bottom:12px;opacity:.66;}
   .brand-copy h1{max-width:440px;color:#fff;font-size:clamp(35px,3.4vw,48px);font-weight:800;line-height:1.05;}
@@ -526,3 +526,85 @@
 .link-btn{min-height:44px;padding:0;border:0;background:transparent;color:var(--forest);font-size:14px;font-weight:700;cursor:pointer;}
 .link-btn:hover{text-decoration:underline;}
 
+/* ---------- Dashboard box redesign ---------- */
+.welcome-banner.hero{padding:38px 44px;border-radius:18px;min-height:210px;align-items:center;}
+.hero-eyebrow{font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.75);margin-bottom:12px;}
+.welcome-banner.hero h2{font-size:38px;line-height:1.1;margin:0 0 10px;letter-spacing:-.02em;}
+.welcome-banner.hero p{font-size:16px;color:rgba(255,255,255,.9);}
+.hero-actions{display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-top:24px;}
+.hero-btn{padding:13px 22px;border:0;border-radius:10px;background:#fff;color:#2F5BD9;font-size:15px;font-weight:800;}
+.hero-btn:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(0,0,0,.18);}
+.hero-link{padding:0;border:0;background:none;color:#fff;font-size:15px;font-weight:600;opacity:.92;}
+.hero-link:hover{text-decoration:underline;}
+.hero-icon{opacity:.28;flex-shrink:0;}
+.hero-icon .icon{width:96px;height:96px;stroke-width:1.2;}
+
+.stat-grid{grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;}
+.stat-card{gap:20px;padding:26px 28px;border-radius:16px;border-left:4px solid var(--forest);}
+.stat-card.c-orange{border-left-color:var(--pending);}
+.stat-card.c-green{border-left-color:var(--vacant);}
+.stat-card.c-red{border-left-color:var(--occupied);}
+.stat-icon{width:64px;height:64px;border-radius:16px;}
+.stat-icon .icon{width:28px;height:28px;}
+.stat-content .value{font-size:38px;font-weight:900;line-height:1;margin:0;}
+.stat-content .label{margin-top:10px;color:var(--ink);font-size:17px;font-weight:800;letter-spacing:0;text-transform:none;}
+.stat-content .sub{margin-top:4px;color:var(--ink-soft);font-size:14px;}
+
+.dash-grid .card{padding:28px;border-radius:16px;}
+.card-head{align-items:flex-start;margin-bottom:6px;padding-bottom:0;border-bottom:0;}
+.card-head h3{font-size:21px;font-weight:800;letter-spacing:-.01em;}
+.card-sub{margin:0 0 20px;color:var(--ink-soft);font-size:14px;line-height:1.45;}
+.card-link{padding:0;border:0;background:none;color:var(--forest);font-size:14px;font-weight:800;white-space:nowrap;}
+.card-link:hover{text-decoration:underline;}
+
+.item-box{display:flex;align-items:center;gap:14px;margin-bottom:10px;padding:16px 18px;border:1px solid var(--border);border-radius:14px;background:#fff;transition:border-color .18s ease,box-shadow .18s ease;}
+.item-box:last-child{margin-bottom:0;}
+.item-box[onclick]:hover{border-color:#B9C9F2;box-shadow:0 8px 18px -12px rgba(18,19,24,.25);}
+.item-lead{flex-shrink:0;}
+.item-main{flex:1;min-width:0;}
+.item-title{font-size:17px;font-weight:800;}
+.item-sub{margin-top:3px;color:var(--ink-soft);font-size:13.5px;}
+.item-arrow{display:grid;place-items:center;flex-shrink:0;width:36px;height:36px;border-radius:10px;background:#EEF2FF;color:var(--forest);}
+
+@media(max-width:660px){
+  .welcome-banner.hero{padding:26px 22px;min-height:0;}
+  .welcome-banner.hero h2{font-size:28px;}
+  .hero-icon{display:none;}
+  .stat-card{padding:20px;}
+  .stat-content .value{font-size:32px;}
+  .dash-grid .card{padding:20px;}
+}
+/* ---------- Mabini blue theme ---------- */
+:root{--forest:#1628B4;--forest-light:#0F1C94;--navy:#080F66;--navy-soft:#1628B4;}
+.welcome-banner{background:linear-gradient(135deg,#080F66,#1628B4);}
+.hero-btn{color:#1628B4;}
+.side-nav button.active{box-shadow:inset 3px 0 0 #fff;}
+
+/* login: kaliwa */
+.brand-panel{background:linear-gradient(160deg,#060C5A,#0A1478 55%,#1226A8);}
+.brand-panel::before{background:rgba(110,140,255,.30);}
+.brand-panel::after{background:rgba(200,210,235,.16);}
+.brand-copy .eyebrow{opacity:.85;}
+.brand-copy p,.mini-stat span{color:#C9D1E6;}
+.brand-school{color:#E8C468;}
+
+/* login: kanan */
+.login-panel{background:#060C5A;}
+.plate-sub{color:#5B6478;}
+.field label,.check{color:#2E3650;}
+.field input::placeholder{color:#8A93A8;}
+.field input:focus,.field select:focus{box-shadow:0 0 0 4px rgba(22,40,180,.13);}
+.btn-primary{box-shadow:0 8px 18px -10px rgba(22,40,180,.8);}
+.field input:-webkit-autofill{-webkit-text-fill-color:#121318;-webkit-box-shadow:0 0 0 1000px #fff inset;}
+
+/* maliliit */
+.teacher-count{background:#E8EAFF;color:#1628B4;}
+.stat-icon.blue,.item-arrow{background:#E8EAFF;}
+
+/* Login: full-photo background */
+.login-shell{position:relative;background:url('../login-bg.jpg') center/cover no-repeat;}
+.login-shell::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(6,12,90,.78) 0%,rgba(6,12,90,.45) 60%,rgba(6,12,90,.25) 100%);}
+.brand-panel,.login-panel{position:relative;z-index:1;background:transparent;}
+.brand-panel::before,.brand-panel::after{display:none;}
+.login-card{background:rgba(255,255,255,.94);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.5);box-shadow:0 30px 70px -20px rgba(0,0,0,.5);}
+@media(max-width:980px){.mobile-brand{background:transparent;border:0;}.mobile-brand .brand-name{color:#fff;}.mobile-brand .brand-school{color:#C9D1E6;}}

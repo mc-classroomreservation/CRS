@@ -23,23 +23,49 @@ function dayLabel(dateStr){
   if(dateStr === tomorrow) return 'Tomorrow';
   return new Date(dateStr + 'T00:00:00Z').toLocaleDateString('en-US',{timeZone:'UTC',weekday:'short',month:'short',day:'numeric'});
 }
-function welcomeBanner(title, subtitle, ic){
+function welcomeBanner({eyebrow, title, subtitle, ic, primary, secondary}){
   return `
-    <div class="welcome-banner">
-      <div><h2>${title}</h2><p>${subtitle}</p></div>
-      <div style="font-size:48px; opacity:0.15; color:#fff;">${icon(ic)}</div>
+    <div class="welcome-banner hero">
+      <div class="hero-text">
+        <div class="hero-eyebrow">${eyebrow}</div>
+        <h2>${title}</h2>
+        <p>${subtitle}</p>
+        ${primary || secondary ? `<div class="hero-actions">
+          ${primary ? `<button class="hero-btn" onclick="${primary.go}">${primary.label}</button>` : ''}
+          ${secondary ? `<button class="hero-link" onclick="${secondary.go}">${secondary.label}</button>` : ''}
+        </div>` : ''}
+      </div>
+      <div class="hero-icon" style="color:#fff;">${icon(ic)}</div>
     </div>`;
 }
-function statCard({color, ic, label, value, go, valueStyle=''}){
+function statCard({color, ic, label, value, sub='', go, valueStyle=''}){
   return `
-    <div class="stat-card"${go ? ` style="cursor:pointer;" onclick="${go}"` : ''}>
+    <div class="stat-card c-${color}"${go ? ` style="cursor:pointer;" onclick="${go}"` : ''}>
       <div class="stat-icon ${color}">${icon(ic)}</div>
       <div class="stat-content">
-        <div class="label">${label}</div>
         <div class="value" style="${valueStyle}">${value}</div>
+        <div class="label">${label}</div>
+        ${sub ? `<div class="sub">${sub}</div>` : ''}
       </div>
     </div>`;
 }
+function cardHead(title, sub, right=''){
+  return `<div class="card-head"><h3>${title}</h3>${right}</div>${sub ? `<p class="card-sub">${sub}</p>` : ''}`;
+}
+function cardLink(label, go){
+  return `<button class="card-link" onclick="${go}">${label}</button>`;
+}
+function itemBox({title, sub='', lead='', right='', go=''}){
+  return `
+    <div class="item-box"${go ? ` style="cursor:pointer;" onclick="${go}"` : ''}>
+      ${lead ? `<div class="item-lead">${lead}</div>` : ''}
+      <div class="item-main"><div class="item-title">${title}</div>${sub ? `<div class="item-sub">${sub}</div>` : ''}</div>
+      ${right}
+    </div>`;
+}
+function arrowBtn(){ return `<span class="item-arrow">${icon('arrowRight')}</span>`; }
+function pill(kind, text){ return `<span class="status-pill ${kind}"><span class="dot"></span>${text}</span>`; }
+function emptyNote(text){ return `<p style="color:var(--ink-soft); text-align:center; padding:20px 10px;">${text}</p>`; }
 function avatarBig(user, size=48){
   const photo = user && user.profile_image;
   const style = `width:${size}px;height:${size}px;font-size:${Math.round(size*.38)}px;` + (photo ? '' : 'background:#EEF2FF;color:var(--forest);');
@@ -66,64 +92,53 @@ function renderAdminDashboard(){
   const pct = total === 0 ? 0 : Math.round((occupied / total) * 100);
   const teacherName = id => (SERVER_USERS.find(u => String(u.id) === String(id)) || {}).name || 'Teacher';
   const recentLogs = ACTIVITY_LOGS.slice(0, 5);
+  const pending = PENDING_TEACHERS.length;
 
   return `
-    ${welcomeBanner(`${greetingNow()}, ${CURRENT_USER.name}`, `${todayLabel()} · Here's what's happening on campus.`, 'building')}
+    ${welcomeBanner({
+      eyebrow: todayLabel().toUpperCase(),
+      title: `${greetingNow()}, ${CURRENT_USER.name}.`,
+      subtitle: `Here's what's happening on campus right now.`,
+      ic: 'building',
+      primary: { label: pending > 0 ? 'Review approvals' : 'Manage rooms', go: pending > 0 ? "goTab('approvals')" : "goTab('rooms')" },
+      secondary: { label: 'View reports', go: "goTab('reports')" }
+    })}
 
     <div class="stat-grid">
-      ${statCard({color:'orange', ic:'users', label:'Pending Approvals', value:PENDING_TEACHERS.length, go:"goTab('approvals')", valueStyle:'color:var(--pending);'})}
-      ${statCard({color:'green', ic:'check', label:'Available Now', value:vacant, go:'goToVacantRooms()', valueStyle:'color:var(--vacant);'})}
-      ${statCard({color:'red', ic:'users', label:'Occupied Now', value:occupied, go:"goTab('rooms')", valueStyle:'color:var(--occupied);'})}
+      ${statCard({color:'orange', ic:'users', label:'Pending approvals', value:pending, sub: pending === 0 ? 'Nothing to review' : 'Teacher sign-ups to review', go:"goTab('approvals')"})}
+      ${statCard({color:'green', ic:'check', label:'Available now', value:vacant, sub:`of ${total} room${total === 1 ? '' : 's'}`, go:'goToVacantRooms()'})}
+      ${statCard({color:'red', ic:'users', label:'Occupied now', value:occupied, sub: occupied === 0 ? 'All rooms are free' : 'Rooms in use', go:"goTab('rooms')"})}
     </div>
 
     <div class="dash-grid">
       <div class="dash-col">
         <div class="card">
-          <div class="card-head">
-            <h3>Campus Occupancy</h3>
-            <span class="status-pill vacant"><span class="dot"></span>Live Data</span>
-          </div>
+          ${cardHead('Campus occupancy', 'Live room usage across campus.', pill('vacant', 'Live data'))}
           <div class="donut-wrap">
             <div class="donut" style="background: conic-gradient(var(--occupied) 0% ${pct}%, var(--vacant) ${pct}% 100%);">
               <div class="donut-inner"><strong>${pct}%</strong><span>Occupied</span></div>
             </div>
             <div class="legend">
-              <div class="legend-item"><div class="legend-dot" style="background:var(--occupied);"></div> Occupied Rooms (${occupied})</div>
-              <div class="legend-item"><div class="legend-dot" style="background:var(--vacant);"></div> Available Rooms (${vacant})</div>
-              <div class="hint">${total} room${total === 1 ? '' : 's'} in total</div>
+              <div class="legend-item"><div class="legend-dot" style="background:var(--occupied);"></div> Occupied rooms (${occupied})</div>
+              <div class="legend-item"><div class="legend-dot" style="background:var(--vacant);"></div> Available rooms (${vacant})</div>
             </div>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-head">
-            <h3>Live Room Status</h3>
-            <button class="btn-sm" onclick="goTab('rooms')">View All</button>
-          </div>
-          ${occupiedRooms.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">No rooms are currently occupied.</p>` : occupiedRooms.map(r => `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:14px; border:1px solid var(--border); border-radius:10px; margin-bottom:10px;">
-              <div style="display:flex; align-items:center; gap:16px;">
-                <div class="stat-icon blue" style="width:40px; height:40px; border-radius:8px;">${icon('rooms')}</div>
-                <div>
-                  <h4 style="font-size:15px; margin-bottom:4px;">${r.name}</h4>
-                  <p style="font-size:12px; color:var(--ink-soft);">${[r.building, r.floor].filter(Boolean).join(' · ')}</p>
-                </div>
-              </div>
-              <div style="text-align:right;">
-                <div class="status-pill occupied" style="margin-bottom:6px;"><span class="dot"></span>In Use</div>
-                <div style="font-size:12px; font-weight:700;">By ${teacherName(r.teacher_id)}</div>
-              </div>
-            </div>
-          `).join('')}
+          ${cardHead('Live room status', 'Rooms being used right now.', cardLink('View all', "goTab('rooms')"))}
+          ${occupiedRooms.length === 0 ? emptyNote('No rooms are currently occupied.') : occupiedRooms.map(r => itemBox({
+            title: r.name,
+            sub: `${[r.building, r.floor].filter(Boolean).join(' · ')} · by ${teacherName(r.teacher_id)}`,
+            right: pill('occupied', 'In use'),
+            go: "goTab('rooms')"
+          })).join('')}
         </div>
       </div>
 
       <div class="dash-col">
         <div class="card">
-          <div class="card-head">
-            <h3>Recent Activity</h3>
-            <button class="btn-sm" onclick="goTab('reports')">View all</button>
-          </div>
+          ${cardHead('Recent activity', 'Latest check-ins and check-outs.', cardLink('View all', "goTab('reports')"))}
           ${activityTimeline(recentLogs, 'No recent activity.')}
         </div>
       </div>
@@ -149,71 +164,44 @@ function renderTeacherDashboard(){
     : `You have ${todayLeft} reservation${todayLeft === 1 ? '' : 's'} left today.`;
 
   return `
-    ${welcomeBanner(`${greetingNow()}, ${CURRENT_USER.name}`, subtitle, 'calendar')}
+    ${welcomeBanner({
+      eyebrow: todayLabel().toUpperCase(),
+      title: `${greetingNow()}, ${CURRENT_USER.name}.`,
+      subtitle,
+      ic: 'calendar',
+      primary: { label: mine ? 'Scan to check out' : 'Scan to check in', go: "goTab('scan')" },
+      secondary: { label: 'Reserve a room', go: "goTab('reservations')" }
+    })}
 
     <div class="stat-grid">
-      ${statCard({color:'red', ic:'door', label:'Current Status', value: mine ? mine.name : 'Not checked in', go:"goTab('scan')", valueStyle:'font-size:16px; line-height:1.25;'})}
-      ${statCard({color:'blue', ic:'calendar', label:'Reservations Today', value:todayLeft, go:"goTab('reservations')"})}
-      ${statCard({color:'orange', ic:'users', label:'Follower Requests', value:pendingFollowers, go:"goTab('followers')", valueStyle:'color:var(--pending);'})}
-      ${statCard({color:'green', ic:'rooms', label:'Vacant Rooms', value:vacantRooms.length, go:'goToVacantRooms()', valueStyle:'color:var(--vacant);'})}
+      ${statCard({color:'red', ic:'door', label:'Current status', value: mine ? mine.name : 'Not checked in', sub: mine ? [mine.building, mine.floor].filter(Boolean).join(' · ') : 'Scan a room QR to check in', go:"goTab('scan')", valueStyle:'font-size:24px; line-height:1.15;'})}
+      ${statCard({color:'blue', ic:'calendar', label:'Reservations today', value:todayLeft, sub:`${upcoming.length} upcoming in total`, go:"goTab('reservations')"})}
+      ${statCard({color:'orange', ic:'users', label:'Follower requests', value:pendingFollowers, sub: pendingFollowers === 0 ? 'No requests' : 'Waiting for your reply', go:"goTab('followers')"})}
+      ${statCard({color:'green', ic:'rooms', label:'Vacant rooms', value:vacantRooms.length, sub:'Free right now', go:'goToVacantRooms()'})}
     </div>
 
     <div class="dash-grid">
       <div class="dash-col">
-        ${mine ? `
-        <div class="card" style="border-left:4px solid var(--occupied);">
-          <div class="row-between">
-            <div>
-              <h3 style="font-size:20px; color:var(--ink); margin-bottom:4px;">Currently in ${mine.name}</h3>
-              <p style="color:var(--ink-soft); font-size:14px;">${[mine.building, mine.floor].filter(Boolean).join(' · ')}</p>
-            </div>
-            <button class="btn-sm danger" onclick="goTab('scan')">Scan to Checkout</button>
-          </div>
-        </div>` : `
-        <div class="card" style="border-left:4px solid var(--vacant);">
-          <div class="row-between">
-            <div>
-              <h3 style="font-size:20px; color:var(--ink); margin-bottom:4px;">Not Checked In</h3>
-              <p style="color:var(--ink-soft); font-size:14px;">You are not currently in a room.</p>
-            </div>
-            <button class="btn-sm primary" onclick="goTab('scan')">Scan to Check In</button>
-          </div>
-        </div>`}
-
         <div class="card">
-          <div class="card-head">
-            <h3>Upcoming Reservations</h3>
-            <button class="btn-sm" onclick="goTab('reservations')">View all</button>
-          </div>
-          ${upcoming.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">No upcoming reservations.</p>` : upcoming.slice(0, 4).map(r => {
-            const [tm, ap] = formatTime12(r.start_time.slice(11,16)).split(' ');
-            return `
-            <div class="agenda-item">
-              <div class="agenda-time"><strong>${tm}</strong><span>${ap}</span></div>
-              <div class="agenda-details">
-                <h4>${r.room_name}</h4>
-                <p>${dayLabel(r.start_time.slice(0,10))} · until ${formatTime12(r.end_time.slice(11,16))}</p>
-              </div>
-            </div>`;
-          }).join('')}
+          ${cardHead('Upcoming reservations', 'Your next booked classes.', cardLink('View all', "goTab('reservations')"))}
+          ${upcoming.length === 0 ? emptyNote('No upcoming reservations.') : upcoming.slice(0, 4).map(r => itemBox({
+            title: r.room_name,
+            sub: `${dayLabel(r.start_time.slice(0,10))} · ${formatTime12(r.start_time.slice(11,16))} – ${formatTime12(r.end_time.slice(11,16))}`,
+            right: arrowBtn(),
+            go: "goTab('reservations')"
+          })).join('')}
         </div>
       </div>
 
       <div class="dash-col">
         <div class="card">
-          <div class="card-head">
-            <h3>Vacant Rooms</h3>
-            <button class="btn-sm primary" onclick="goTab('reservations')">Reserve a room</button>
-          </div>
-          ${vacantRooms.length === 0 ? `<p style="color:var(--ink-soft); text-align:center; padding:20px;">No vacant rooms right now.</p>` : vacantRooms.slice(0, 5).map(r => `
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 14px; border:1px solid var(--border); border-radius:10px; margin-bottom:10px;">
-              <div>
-                <h4 style="font-size:14px; margin-bottom:3px;">${r.name}</h4>
-                <p style="font-size:12px; color:var(--ink-soft);">${[r.building, r.floor].filter(Boolean).join(' · ')}</p>
-              </div>
-              <span class="status-pill vacant"><span class="dot"></span>Vacant</span>
-            </div>
-          `).join('')}
+          ${cardHead('Vacant rooms', 'Rooms you can use right now.', cardLink('Reserve a room', "goTab('reservations')"))}
+          ${vacantRooms.length === 0 ? emptyNote('No vacant rooms right now.') : vacantRooms.slice(0, 5).map(r => itemBox({
+            title: r.name,
+            sub: [r.building, r.floor].filter(Boolean).join(' · '),
+            right: pill('vacant', 'Vacant'),
+            go: "goTab('reservations')"
+          })).join('')}
           ${vacantRooms.length > 5 ? `<p class="hint">+${vacantRooms.length - 5} more</p>` : ''}
         </div>
       </div>
@@ -239,61 +227,57 @@ function renderStudentDashboard(){
   const feed = ACTIVITY_LOGS.filter(l => followedIds.includes(String(l.teacher_id))).slice(0, 5);
 
   return `
-    ${welcomeBanner(`Hello, ${CURRENT_USER.name}`, subtitle, 'users')}
+    ${welcomeBanner({
+      eyebrow: todayLabel().toUpperCase(),
+      title: `Hello, ${CURRENT_USER.name}.`,
+      subtitle,
+      ic: 'users',
+      primary: { label: 'Find teachers', go: "goTab('search')" },
+      secondary: { label: 'My follows', go: "goTab('follows')" }
+    })}
 
     <div class="stat-grid">
-      ${statCard({color:'green', ic:'users', label:'Teachers Followed', value:accepted.length, go:"goTab('follows')"})}
-      ${statCard({color:'blue', ic:'door', label:'In Class Now', value:activeCount, go:"goTab('follows')"})}
+      ${statCard({color:'green', ic:'users', label:'Teachers followed', value:accepted.length, sub:`${pending.length} request${pending.length === 1 ? '' : 's'} pending`, go:"goTab('follows')"})}
+      ${statCard({color:'blue', ic:'door', label:'In class now', value:activeCount, sub:`of ${accepted.length} followed`, go:"goTab('follows')"})}
     </div>
 
     <div class="dash-grid">
       <div class="dash-col">
         <div class="card">
-          <div class="card-head">
-            <h3>Live Teacher Status</h3>
-            <button class="btn-sm primary" onclick="goTab('search')">Find Teachers</button>
-          </div>
-
+          ${cardHead('Live teacher status', 'Where your teachers are right now.', cardLink('Find teachers', "goTab('search')"))}
           ${accepted.length === 0 ? `<div class="empty">You aren't following any teachers yet.</div>` : sorted.map(f => {
             const room = roomOf(f);
             const teacher = SERVER_USERS.find(u => String(u.id) === String(f.teacher_id)) || { name: f.teacher_name };
-            return `
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px; border:1px solid var(--border); border-radius:10px; margin-bottom:10px;">
-              <div style="display:flex; align-items:center; gap:16px; min-width:0;">
-                ${avatarBig(teacher, 48)}
-                <div style="min-width:0;">
-                  <h4 style="font-size:16px; margin-bottom:4px;">${f.teacher_name}</h4>
-                  ${room
-                    ? `<p style="font-size:13px; color:var(--forest); font-weight:700;">Currently in ${room.name} · ${[room.building, room.floor].filter(Boolean).join(' · ')}</p>`
-                    : `<p style="font-size:13px; color:var(--ink-soft); font-weight:700;">Not in a room right now</p>`}
-                </div>
-              </div>
-              <span class="status-pill ${room ? 'occupied' : 'vacant'}"><span class="dot"></span>${room ? 'In Class' : 'Vacant'}</span>
-            </div>`;
+            return itemBox({
+              title: f.teacher_name,
+              sub: room ? `In ${room.name} · ${[room.building, room.floor].filter(Boolean).join(' · ')}` : 'Not in a room right now',
+              lead: avatarBig(teacher, 46),
+              right: pill(room ? 'occupied' : 'vacant', room ? 'In class' : 'Vacant')
+            });
           }).join('')}
 
           ${pending.length > 0 ? `
-            <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:20px;">
-              <h4 style="font-size:14px; color:var(--ink-soft); margin-bottom:12px;">Pending Requests</h4>
-              ${pending.map(f => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:#fafbfc; border-radius:12px; margin-bottom:8px;">
-                  <div style="font-weight:700; font-size:14px;">${f.teacher_name}</div>
-                  <span class="status-pill" style="background:#fff; border:1px solid var(--border); color:var(--ink-soft);">Waiting for approval</span>
-                </div>
-              `).join('')}
+            <div style="margin-top:22px; padding-top:20px; border-top:1px solid var(--border);">
+              <h4 style="font-size:14px; color:var(--ink-soft); margin-bottom:12px;">Pending requests</h4>
+              ${pending.map(f => itemBox({
+                title: f.teacher_name,
+                right: `<span class="status-pill" style="background:#fff; border:1px solid var(--border); color:var(--ink-soft);">Waiting for approval</span>`
+              })).join('')}
             </div>` : ''}
         </div>
       </div>
 
       <div class="dash-col">
         <div class="card">
-          <div class="card-head"><h3>Teacher Activity Feed</h3></div>
+          ${cardHead('Teacher activity', 'Latest check-ins from teachers you follow.')}
           ${activityTimeline(feed, 'No recent activity from your teachers.')}
         </div>
       </div>
     </div>
   `;
 }
+
+/* ---------- Login greeting: "Welcome" (first time) / "Welcome back" (returning) ---------- */
 function isReturningUser(){
   try{ return localStorage.getItem('crs-returning') === '1'; }catch(e){ return false; }
 }
