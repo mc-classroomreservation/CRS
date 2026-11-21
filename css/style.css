@@ -159,7 +159,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 
 /* ---------- App shell (sidebar) ---------- */
 .shell{display:flex;min-height:100vh;}
-.side{position:sticky;top:0;align-self:flex-start;z-index:20;display:flex;flex-direction:column;flex-shrink:0;width:260px;height:100vh;padding:20px 14px;overflow-y:auto;background:var(--navy);color:#fff;box-shadow:10px 0 30px -12px rgba(18,19,24,.35);}
+.side{position:sticky;top:0;align-self:flex-start;z-index:20;display:flex;flex-direction:column;flex-shrink:0;width:260px;height:100vh;padding:20px 14px;overflow-y:auto;background:linear-gradient(180deg,#292929,#535353);color:#fff;box-shadow:10px 0 30px -12px rgba(18,19,24,.35);}
 .side-logo{display:flex;align-items:center;gap:11px;padding:4px 8px 20px;margin-bottom:14px;border-bottom:1px solid rgba(255,255,255,.12);}
 .side-logo .mark{width:42px;height:42px;}
 .side-logo .brand-name{color:#fff;}
@@ -266,12 +266,12 @@ tr:last-child td{border-bottom:none;}
 .profile-form .btn-primary .icon{margin-right:6px;}
 
 /* ---------- Dashboards ---------- */
-.welcome-banner{display:flex;justify-content:space-between;align-items:center;min-height:210px;padding:38px 44px;margin-bottom:24px;border-radius:18px;background:linear-gradient(135deg,#2A4FBD,#3A68D0);box-shadow:var(--shadow);}
+.welcome-banner{display:flex;justify-content:space-between;align-items:center;min-height:210px;padding:38px 44px;margin-bottom:24px;border-radius:18px;background:linear-gradient(135deg,#292929,#696969);box-shadow:var(--shadow);}
 .welcome-banner h2{margin:0 0 10px;color:#fff;font-size:38px;line-height:1.1;letter-spacing:-.02em;}
 .welcome-banner p{color:rgba(255,255,255,.9);font-size:16px;}
 .hero-eyebrow{margin-bottom:12px;color:rgba(255,255,255,.75);font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;}
 .hero-actions{display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-top:24px;}
-.hero-btn{padding:13px 22px;border:0;border-radius:10px;background:#fff;color:var(--forest);font-size:15px;font-weight:800;}
+.hero-btn{padding:13px 22px;border:0;border-radius:10px;background:#fff;color:#545454;font-size:15px;font-weight:800;}
 .hero-btn:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(0,0,0,.18);}
 .hero-link{padding:0;border:0;background:none;color:#fff;font-size:15px;font-weight:600;opacity:.92;}
 .hero-link:hover{text-decoration:underline;}
