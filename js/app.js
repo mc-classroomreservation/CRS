@@ -69,6 +69,8 @@ function icon(name){
     rooms:'<path d="M3 21h18"/><path d="M5 21V6l7-3 7 3v15"/><path d="M9 21v-6h6v6"/><path d="M8 9h.01M16 9h.01"/>',
     users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
     calendar:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/>',
+    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    printer:'<path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/><path d="M18 12h.01"/>',
     report:'<path d="M4 19V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14"/><path d="M8 17v-4M12 17V9M16 17v-6"/><path d="M3 21h18"/>',
     scan:'<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
     follow:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M16 11h6"/>',
@@ -914,6 +916,7 @@ function renderShell(){
   ${VIEW.qrModalRoomId ? renderQRModal() : ''}
   ${VIEW.personModalId ? renderPersonModal() : ''}
   ${VIEW.scheduleModal ? renderScheduleModal() : ''}
+  ${VIEW.timePicker ? renderScheduleTimePicker() : ''}
   ${VIEW.checkinModal ? renderCheckinTimeModal() : ''}
   ${VIEW.confirm ? renderConfirmModal() : ''}
   ${VIEW.toast ? renderToast() : ''}
@@ -1312,17 +1315,79 @@ function deleteRoom(id){
 /* ----- QR modal ----- */
 function openQR(roomId){ VIEW.qrModalRoomId = roomId; render(); }
 function closeQR(){ VIEW.qrModalRoomId = null; render(); }
+const QR_PRINT_FORMATS = {
+  a4:{ page:'210mm 297mm', width:8.27, height:11.69, qr:4.4 },
+  a5:{ page:'148mm 210mm', width:5.83, height:8.27, qr:3.1 },
+  shortBond:{ page:'8.5in 11in', width:8.5, height:11, qr:4.5 },
+  longBond:{ page:'8.5in 13in', width:8.5, height:13, qr:4.6 },
+  legal:{ page:'8.5in 14in', width:8.5, height:14, qr:4.6 },
+  a3:{ page:'297mm 420mm', width:11.69, height:16.54, qr:5.3 }
+};
+function applyQRPrintFormat(){
+  const selectedSize = document.getElementById('qr-paper-size')?.value || 'shortBond';
+  const format = QR_PRINT_FORMATS[selectedSize] || QR_PRINT_FORMATS.shortBond;
+  const margin = 0.25;
+  const printableWidth = format.width - margin * 2;
+  const printableHeight = format.height - margin * 2;
+  const qrSize = Math.floor(Math.min(format.qr, printableWidth - 0.25, printableHeight - 0.7) * 100) / 100;
+  const qrTop = Math.floor((printableHeight - qrSize) * 50) / 100;
+  const titleTop = Math.floor(printableHeight * 10) / 100;
+  let printStyle = document.getElementById('qr-page-format-style');
+  if(!printStyle){
+    printStyle = document.createElement('style');
+    printStyle.id = 'qr-page-format-style';
+    document.head.appendChild(printStyle);
+  }
+  printStyle.textContent = `@media print{
+    @page{size:${format.page};margin:${margin}in;}
+    #qr-print-area{position:relative!important;width:${printableWidth}in!important;height:${printableHeight}in!important;max-width:none!important;min-height:0!important;}
+    #qr-print-area #qr-print-content{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;}
+    #qr-print-area .qr-room-name{position:absolute!important;top:${titleTop}in!important;left:50%!important;transform:translateX(-50%)!important;width:${qrSize}in!important;max-width:${qrSize}in!important;margin:0!important;font-size:22pt!important;line-height:1.15!important;}
+    #qr-print-area #qrbox{position:absolute!important;top:${qrTop}in!important;left:50%!important;transform:translateX(-50%)!important;margin:0!important;width:${qrSize}in!important;height:${qrSize}in!important;}
+    #qr-print-area #qr-canvas-target,#qr-print-area #qr-canvas-target img{width:${qrSize}in!important;height:${qrSize}in!important;}
+  }`;
+}
+function printRoomQR(){
+  if(!VIEW.qrModalRoomId) return;
+  const target = document.getElementById('qr-canvas-target');
+  if(!target || !target.querySelector('canvas,img')){
+    queueToast('The QR code is still loading. Try again in a moment.', 'warning', 'QR not ready');
+    return;
+  }
+  applyQRPrintFormat();
+  window.print();
+}
 function renderQRModal(){
   const room = ROOMS.find(r => String(r.id) === String(VIEW.qrModalRoomId));
   if(!room) return '';
   return `
   <div class="modal-bg" onclick="if(event.target===this)closeQR()">
-    <div class="modal">
-      <h3>${room.name}</h3>
-      <div class="rid">CODE: CRS-ROOM-${room.room_code}</div>
-      <div id="qrbox"><div id="qr-canvas-target"></div></div>
-      <p style="font-size:12px;color:var(--ink-soft);margin-bottom:16px;">Print this and post it on the classroom door. Teachers scan it to check in and out.</p>
-      <button class="btn-sm primary" onclick="closeQR()" style="width:100%;">Close</button>
+    <div class="modal qr-modal">
+      <div class="qr-print-brand">CLASSROOM RESERVATION <span>MC SPACE MANAGEMENT</span></div>
+      <div id="qr-print-area" class="qr-print-area">
+        <div id="qr-print-content" class="qr-print-content">
+          <h3 class="qr-room-name">${escapeAttr(room.name)}</h3>
+          <div id="qrbox"><div id="qr-canvas-target"></div></div>
+        </div>
+      </div>
+      <div class="rid">CODE: CRS-ROOM-${escapeAttr(room.room_code)}</div>
+      <p class="qr-print-note">Post this code on the classroom door. Teachers scan it to check in and out.</p>
+      <label class="qr-paper-size">
+        <span>Paper size</span>
+        <select id="qr-paper-size" aria-label="Print paper size" onchange="applyQRPrintFormat()">
+          <option value="shortBond" selected>Letter / Short bond · 8.5 × 11 in</option>
+          <option value="longBond">Long bond · 8.5 × 13 in</option>
+          <option value="a4">A4 · 210 × 297 mm</option>
+          <option value="a5">A5 · 148 × 210 mm</option>
+          <option value="legal">Legal · 8.5 × 14 in</option>
+          <option value="a3">A3 · 297 × 420 mm</option>
+        </select>
+        <small>QR size adapts to the paper; the room name stays paired above it.</small>
+      </label>
+      <div class="qr-modal-actions">
+        <button class="btn-sm" type="button" onclick="closeQR()">Close</button>
+        <button class="btn-sm primary" type="button" onclick="printRoomQR()">${icon('printer')}Print QR</button>
+      </div>
     </div>
   </div>`;
 }
@@ -1337,8 +1402,8 @@ function drawQR(targetId, roomId){
 
   new QRCode(el, {
     text: 'CRS-ROOM-' + room.room_code,
-    width: 180,
-    height: 180,
+    width: 1200,
+    height: 1200,
     colorDark: '#22201B',
     colorLight: '#ffffff'
   });
@@ -1575,6 +1640,9 @@ function formatTime12(t){
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   return `${hour12}:${String(m).padStart(2,'0')} ${period}`;
 }
+function scheduleTimeRange(start, end){
+  return `<span class="sched-time-start">${formatTime12(start)}</span><span class="sched-time-dash" aria-hidden="true">–</span><span class="sched-time-end">${formatTime12(end)}</span>`;
+}
 
 function renderScheduleGrid(editable){
   const buildings = [...new Set(ROOMS.map(r => r.building).filter(Boolean))].sort();
@@ -1582,8 +1650,19 @@ function renderScheduleGrid(editable){
     VIEW.scheduleBuilding = buildings[0] || '';
   }
   const buildingRooms = ROOMS.filter(r => r.building === VIEW.scheduleBuilding);
+  if(VIEW.scheduleRoom && !buildingRooms.some(r => String(r.id) === String(VIEW.scheduleRoom))){
+    VIEW.scheduleRoom = '';
+  }
+  const scheduleRooms = VIEW.scheduleRoom
+    ? buildingRooms.filter(r => String(r.id) === String(VIEW.scheduleRoom))
+    : buildingRooms;
   const dates = weekDates();
   const now = manilaNow();
+  const todayJsDay = new Date(`${now.date}T00:00:00Z`).getUTCDay();
+  const todayIndex = (todayJsDay + 6) % 7;
+  if(!Number.isInteger(VIEW.scheduleDay) || VIEW.scheduleDay < 0 || VIEW.scheduleDay > 6){
+    VIEW.scheduleDay = todayIndex;
+  }
 
   const roomCell = room => {
     const live = roomLive(room);
@@ -1609,18 +1688,16 @@ function renderScheduleGrid(editable){
     const overriddenByBooking = s => booked.some(r => r.start_time.slice(11) < s.end_time && r.end_time.slice(11) > s.start_time);
 
     const fixedBlocks = fixed.filter(s => !overriddenByBooking(s)).map(s => {
-      const timeText = `${formatTime12(s.start_time)}&ndash;${formatTime12(s.end_time)}`;
-      const inner = `<div class="sched-chip-time">${timeText}</div>${s.label ? `<div class="sched-chip-label">${s.label}</div>` : ''}`;
+      const inner = `<div class="sched-chip-time">${scheduleTimeRange(s.start_time, s.end_time)}</div>${s.label ? `<div class="sched-chip-label">${s.label}</div>` : ''}`;
       return editable
-        ? `<div class="sched-chip" style="background:#E2E2E2;color:#333;cursor:pointer;" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">${inner}</div>`
-        : `<div class="sched-chip" style="background:#E2E2E2;color:#333;">${inner}</div>`;
+        ? `<div class="sched-chip fixed" style="cursor:pointer;" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">${inner}</div>`
+        : `<div class="sched-chip fixed">${inner}</div>`;
     }).join('');
 
     const bookedBlocks = booked.map(r => {
       const isLive = room.status === 'occupied' && String(room.teacher_id) === String(r.teacher_id) && r.start_time <= now.full;
-      const colors = isLive ? 'background:var(--occupied-bg);color:#A5343A;' : 'background:var(--pending-bg);color:#A85745;';
-      const timeText = `${formatTime12(r.start_time.slice(11))}&ndash;${formatTime12(r.end_time.slice(11))}`;
-      return `<div class="sched-chip" style="${colors}"><div class="sched-chip-time">${timeText}</div><div class="sched-chip-label">${r.teacher_name}</div></div>`;
+      const stateClass = isLive ? 'occupied' : 'reserved';
+      return `<div class="sched-chip ${stateClass}"><div class="sched-chip-time">${scheduleTimeRange(r.start_time.slice(11), r.end_time.slice(11))}</div><div class="sched-chip-label">${r.teacher_name}</div></div>`;
     }).join('');
 
     const empty = !editable && fixed.length === 0 && booked.length === 0 ? `<span class="hint">&mdash;</span>` : '';
@@ -1629,14 +1706,55 @@ function renderScheduleGrid(editable){
     return `<td style="vertical-align:top;min-width:125px;${date === now.date ? 'background:#F6F9FF;' : ''}"><div style="display:flex;flex-direction:column;gap:4px;">${fixedBlocks}${bookedBlocks}${empty}${addBtn}</div></td>`;
   };
 
+  const mobileSchedule = `
+    <div class="mobile-schedule">
+      <div class="mobile-schedule-days" role="group" aria-label="Choose a day">
+        ${DAY_NAMES.map((day, idx) => `<button type="button" class="mobile-schedule-day${idx === VIEW.scheduleDay ? ' active' : ''}${idx === todayIndex ? ' today' : ''}" aria-pressed="${idx === VIEW.scheduleDay}" onclick="setScheduleDay(${idx})"><span>${day.slice(0,3)}</span><strong>${dates[idx].slice(8)}</strong></button>`).join('')}
+      </div>
+      <div class="mobile-schedule-list">
+        ${scheduleRooms.length === 0 ? `<div class="empty">No rooms in this building yet.</div>` : scheduleRooms.map(room => {
+          const idx = VIEW.scheduleDay;
+          const dow = idx + 1;
+          const date = dates[idx];
+          const fixed = SCHEDULES.filter(s => s.room_id === room.id && s.day_of_week === dow);
+          const booked = RESERVATIONS.filter(r => r.room_id === room.id && r.status === 'approved' && r.start_time.slice(0,10) === date && r.end_time > now.full);
+          const overriddenByBooking = s => booked.some(r => r.start_time.slice(11) < s.end_time && r.end_time.slice(11) > s.start_time);
+          const fixedBlocks = fixed.filter(s => !overriddenByBooking(s)).map(s => {
+            const inner = `<div class="sched-chip-time">${scheduleTimeRange(s.start_time, s.end_time)}</div>${s.label ? `<div class="sched-chip-label">${escapeAttr(s.label)}</div>` : ''}`;
+            return editable
+              ? `<button type="button" class="sched-chip mobile-schedule-chip fixed" onclick="openScheduleModal(${room.id}, ${dow}, ${s.id})">${inner}</button>`
+              : `<div class="sched-chip mobile-schedule-chip fixed">${inner}</div>`;
+          }).join('');
+          const bookedBlocks = booked.map(r => {
+            const isLive = room.status === 'occupied' && String(room.teacher_id) === String(r.teacher_id) && r.start_time <= now.full;
+            const stateClass = isLive ? 'occupied' : 'reserved';
+            return `<div class="sched-chip mobile-schedule-chip ${stateClass}"><div class="sched-chip-time">${scheduleTimeRange(r.start_time.slice(11), r.end_time.slice(11))}</div><div class="sched-chip-label">${escapeAttr(r.teacher_name)}</div></div>`;
+          }).join('');
+          const hasItems = fixedBlocks || bookedBlocks;
+          const classCount = fixed.filter(s => !overriddenByBooking(s)).length + booked.length;
+          const addBtn = editable ? `<button type="button" class="btn-sm mobile-schedule-add" onclick="openScheduleModal(${room.id}, ${dow}, null)">${icon('plus')}Add fixed class</button>` : '';
+          return `<article class="card mobile-schedule-room"><div class="mobile-schedule-room-head"><div class="mobile-schedule-room-name">${roomCell(room)}</div><span class="hint">${classCount} ${classCount === 1 ? 'class' : 'classes'}</span></div><div class="mobile-schedule-entries">${hasItems ? `${fixedBlocks}${bookedBlocks}` : `<div class="mobile-schedule-empty">No classes scheduled</div>`}${addBtn}</div></article>`;
+        }).join('')}
+      </div>
+    </div>`;
+
   return `
     <div class="page-head" style="margin-top:26px;"><h3 style="font-size:16px;">Fixed Schedule</h3></div>
     ${buildings.length === 0 ? `<div class="empty">No buildings yet.</div>` : `
-    <div class="field" style="max-width:280px;margin-bottom:12px;">
-      <label>Building</label>
-      <select onchange="setScheduleBuilding(this.value)">
-        ${buildings.map(b => `<option value="${escapeAttr(b)}" ${b===VIEW.scheduleBuilding?'selected':''}>${b}</option>`).join('')}
-      </select>
+    <div class="schedule-filters">
+      <div class="field schedule-filter-field">
+        <label for="schedule-building-filter">Building</label>
+        <select id="schedule-building-filter" onchange="setScheduleBuilding(this.value)">
+          ${buildings.map(b => `<option value="${escapeAttr(b)}" ${b===VIEW.scheduleBuilding?'selected':''}>${escapeAttr(b)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field schedule-filter-field">
+        <label for="schedule-room-filter">Room number</label>
+        <select id="schedule-room-filter" onchange="setScheduleRoom(this.value)">
+          <option value="" ${!VIEW.scheduleRoom?'selected':''}>All rooms</option>
+          ${buildingRooms.map(room => `<option value="${escapeAttr(room.id)}" ${String(room.id)===String(VIEW.scheduleRoom)?'selected':''}>${escapeAttr(room.name)}</option>`).join('')}
+        </select>
+      </div>
     </div>
 
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
@@ -1645,7 +1763,7 @@ function renderScheduleGrid(editable){
       <span class="badge occupied">Occupied</span>
     </div>
 
-    <div class="card table-card" style="overflow-x:auto;margin-bottom:26px;">
+    <div class="card table-card schedule-desktop" style="overflow-x:auto;margin-bottom:26px;">
       <table style="min-width:920px;">
         <thead>
           <tr>
@@ -1654,7 +1772,7 @@ function renderScheduleGrid(editable){
           </tr>
         </thead>
         <tbody>
-          ${buildingRooms.length === 0 ? `<tr><td colspan="8"><div class="empty" style="border:0;">No rooms in this building yet.</div></td></tr>` : buildingRooms.map(room => `
+          ${scheduleRooms.length === 0 ? `<tr><td colspan="8"><div class="empty" style="border:0;">No rooms in this building yet.</div></td></tr>` : scheduleRooms.map(room => `
             <tr>
               <td style="vertical-align:top;">${roomCell(room)}</td>
               ${DAY_NAMES.map((_, idx) => dayCell(room, idx)).join('')}
@@ -1663,10 +1781,13 @@ function renderScheduleGrid(editable){
         </tbody>
       </table>
     </div>
+    ${mobileSchedule}
     `}
   `;
 }
-function setScheduleBuilding(b){ VIEW.scheduleBuilding = b; render(); }
+function setScheduleBuilding(b){ VIEW.scheduleBuilding = b; VIEW.scheduleRoom = ''; render(); }
+function setScheduleRoom(roomId){ VIEW.scheduleRoom = roomId; render(); }
+function setScheduleDay(day){ VIEW.scheduleDay = day; render(); }
 
 function openScheduleModal(roomId, dayOfWeek, scheduleId){
   const room = ROOMS.find(r => r.id === roomId);
@@ -1683,26 +1804,168 @@ function openScheduleModal(roomId, dayOfWeek, scheduleId){
   render();
 }
 function closeScheduleModal(){ VIEW.scheduleModal = null; render(); }
+function setScheduleModalDay(dayOfWeek){
+  const m = VIEW.scheduleModal;
+  if(!m || dayOfWeek < 1 || dayOfWeek > 7) return;
+  captureScheduleModalFields();
+  m.dayOfWeek = dayOfWeek;
+  render();
+}
+function captureScheduleModalFields(){
+  const m = VIEW.scheduleModal;
+  if(!m) return;
+  const start = document.getElementById('sched-start');
+  const end = document.getElementById('sched-end');
+  const label = document.getElementById('sched-label');
+  if(start) m.startTime = start.value;
+  if(end) m.endTime = end.value;
+  if(label) m.label = label.value;
+}
+function openScheduleTimePicker(which){
+  const m = VIEW.scheduleModal;
+  if(!m || !['start','end'].includes(which)) return;
+  captureScheduleModalFields();
+  const value = m[`${which}Time`];
+  const [rawHour,rawMinute] = value ? value.split(':').map(Number) : [which === 'start' ? 8 : 9, 0];
+  VIEW.timePicker = {
+    field:which,
+    hour:rawHour % 12 || 12,
+    minute:rawMinute,
+    period:rawHour >= 12 ? 'PM' : 'AM',
+    stage:'hour'
+  };
+  render();
+}
+function setSchedulePickerStage(stage){
+  if(!VIEW.timePicker || !['hour','minute'].includes(stage)) return;
+  VIEW.timePicker.stage = stage;
+  render();
+}
+function setSchedulePickerPart(part,value){
+  if(!VIEW.timePicker || !['hour','minute'].includes(part)) return;
+  VIEW.timePicker[part] = Number(value);
+  if(part === 'hour') VIEW.timePicker.stage = 'minute';
+  render();
+}
+function setSchedulePickerPeriod(period){
+  if(!VIEW.timePicker || !['AM','PM'].includes(period)) return;
+  VIEW.timePicker.period = period;
+  render();
+}
+function closeScheduleTimePicker(){ VIEW.timePicker = null; render(); }
+function commitScheduleTime(){
+  const picker = VIEW.timePicker;
+  const m = VIEW.scheduleModal;
+  if(!picker || !m) return;
+  const hour24 = (picker.hour % 12) + (picker.period === 'PM' ? 12 : 0);
+  m[`${picker.field}Time`] = `${String(hour24).padStart(2,'0')}:${String(picker.minute).padStart(2,'0')}`;
+  VIEW.timePicker = null;
+  render();
+}
+function renderScheduleTimePicker(){
+  const picker = VIEW.timePicker;
+  if(!picker) return '';
+  const label = picker.field === 'start' ? 'start' : 'end';
+  const values = picker.stage === 'hour'
+    ? Array.from({length:12}, (_, idx) => idx + 1)
+    : Array.from({length:12}, (_, idx) => idx * 5);
+  return `
+    <div class="time-picker-bg" onclick="if(event.target===this)closeScheduleTimePicker()">
+      <section class="time-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="time-picker-title">
+        <header class="time-picker-head">
+          <span class="time-picker-icon">${icon('clock')}</span>
+          <div><span class="eyebrow">CLASS TIME</span><h3 id="time-picker-title">Choose ${label} time</h3></div>
+          <button type="button" class="schedule-modal-close" aria-label="Close time picker" onclick="closeScheduleTimePicker()">${icon('close')}</button>
+        </header>
+        <div class="time-picker-readout" aria-live="polite">
+          <span class="time-picker-clock">${String(picker.hour).padStart(2,'0')}<span>:</span>${String(picker.minute).padStart(2,'0')}</span>
+          <div class="time-picker-period" role="group" aria-label="AM or PM">
+            ${['AM','PM'].map(period => `<button type="button" class="${picker.period === period ? 'active' : ''}" aria-pressed="${picker.period === period}" onclick="setSchedulePickerPeriod('${period}')">${period}</button>`).join('')}
+          </div>
+        </div>
+        <div class="time-picker-tabs" role="group" aria-label="Choose hour or minute">
+          <button type="button" class="${picker.stage === 'hour' ? 'active' : ''}" aria-pressed="${picker.stage === 'hour'}" onclick="setSchedulePickerStage('hour')">Hour</button>
+          <button type="button" class="${picker.stage === 'minute' ? 'active' : ''}" aria-pressed="${picker.stage === 'minute'}" onclick="setSchedulePickerStage('minute')">Minute</button>
+        </div>
+        <div class="time-picker-grid" role="group" aria-label="Choose ${picker.stage}">
+          ${values.map(value => {
+            const selected = picker[ picker.stage ] === value;
+            const text = picker.stage === 'hour' ? String(value).padStart(2,'0') : String(value).padStart(2,'0');
+            return `<button type="button" class="time-picker-value${selected ? ' active' : ''}" aria-pressed="${selected}" onclick="setSchedulePickerPart('${picker.stage}',${value})">${text}</button>`;
+          }).join('')}
+        </div>
+        <footer class="time-picker-footer">
+          <button type="button" class="btn-sm" onclick="closeScheduleTimePicker()">Cancel</button>
+          <button type="button" class="btn-sm primary" onclick="commitScheduleTime()">Use this time</button>
+        </footer>
+      </section>
+    </div>`;
+}
+function scheduleTimeSummary(start, end){
+  if(!start || !end) return { text:'Choose both times to see the class length.', invalid:false };
+  if(start >= end) return { text:'End time must be later than start time.', invalid:true };
+  const [startHour,startMinute] = start.split(':').map(Number);
+  const [endHour,endMinute] = end.split(':').map(Number);
+  const duration = endHour * 60 + endMinute - (startHour * 60 + startMinute);
+  const hours = Math.floor(duration / 60);
+  const minutes = duration % 60;
+  const durationText = [hours ? `${hours} hr` : '', minutes ? `${minutes} min` : ''].filter(Boolean).join(' ');
+  return { text:`${formatTime12(start)} – ${formatTime12(end)} · ${durationText}`, invalid:false };
+}
+function updateScheduleTimeSummary(){
+  const start = document.getElementById('sched-start')?.value || '';
+  const end = document.getElementById('sched-end')?.value || '';
+  const summary = document.getElementById('schedule-time-summary');
+  if(!summary) return;
+  const result = scheduleTimeSummary(start, end);
+  summary.textContent = result.text;
+  summary.classList.toggle('is-error', result.invalid);
+}
 function renderScheduleModal(){
   const m = VIEW.scheduleModal;
   if(!m) return '';
+  const dates = weekDates();
+  const selectedDate = new Date(`${dates[m.dayOfWeek-1]}T00:00:00Z`).toLocaleDateString('en-US', { month:'short', day:'numeric', timeZone:'UTC' });
+  const timeSummary = scheduleTimeSummary(m.startTime, m.endTime);
   return `
   <div class="modal-bg" onclick="if(event.target===this)closeScheduleModal()">
-    <div class="modal confirm-card" style="max-width:380px;">
-      <h3>${m.editingId ? 'Edit' : 'Add'} schedule</h3>
-      <p class="hint" style="margin-bottom:14px;">${m.roomName} — ${DAY_NAMES[m.dayOfWeek-1]}</p>
-      <div class="field"><label>Start time</label><input type="time" id="sched-start" value="${m.startTime}"></div>
-      <div class="field"><label>End time</label><input type="time" id="sched-end" value="${m.endTime}"></div>
-      <div class="field"><label>Name of Teacher</label><input id="sched-label" value="${escapeAttr(m.label)}" placeholder="e.g. Math 101"></div>
-      <div id="schedule-message" aria-live="polite"></div>
-      <div class="confirm-actions" style="justify-content:space-between;">
-        ${m.editingId ? `<button class="btn-sm danger" type="button" onclick="deleteScheduleEntry(${m.editingId})">${icon('trash')}Delete</button>` : `<span></span>`}
-        <div style="display:flex;gap:8px;">
-          <button class="btn-sm" type="button" onclick="closeScheduleModal()">Cancel</button>
-          <button class="btn-sm primary" type="button" onclick="saveScheduleEntry()">${icon('save')}Save</button>
+    <section class="modal schedule-modal-card" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
+      <header class="schedule-modal-head">
+        <span class="schedule-modal-icon">${icon('calendar')}</span>
+        <div class="schedule-modal-heading">
+          <span class="eyebrow">WEEKLY FIXED CLASS</span>
+          <h3 id="schedule-modal-title">${m.editingId ? 'Edit schedule' : 'Add schedule'}</h3>
+          <p>${escapeAttr(m.roomName)} <span aria-hidden="true">·</span> ${DAY_NAMES[m.dayOfWeek-1]}, ${selectedDate}</p>
         </div>
+        <button class="schedule-modal-close" type="button" aria-label="Close schedule panel" onclick="closeScheduleModal()">${icon('close')}</button>
+      </header>
+      <div class="schedule-modal-body">
+        <div class="schedule-date-picker">
+          <div class="schedule-section-heading"><span>Class day</span><small>This week</small></div>
+          <div class="schedule-date-options" role="group" aria-label="Choose class day">
+            ${DAY_NAMES.map((day, idx) => `<button type="button" class="schedule-date-option${idx + 1 === m.dayOfWeek ? ' active' : ''}" aria-pressed="${idx + 1 === m.dayOfWeek}" aria-label="${day}, ${dates[idx]}" onclick="setScheduleModalDay(${idx + 1})"><span>${day.slice(0,3)}</span><strong>${dates[idx].slice(8)}</strong></button>`).join('')}
+          </div>
+        </div>
+        <div class="schedule-time-section">
+          <div class="schedule-section-heading"><span>Class time</span><small>5-minute steps</small></div>
+        <div class="schedule-time-row">
+          <div class="field schedule-time-field"><label for="sched-start-trigger">Starts at</label><button type="button" id="sched-start-trigger" class="schedule-time-trigger" aria-label="Choose class start time" aria-haspopup="dialog" aria-expanded="${VIEW.timePicker?.field === 'start'}" onclick="openScheduleTimePicker('start')"><span>${m.startTime ? formatTime12(m.startTime) : 'Choose time'}</span>${icon('clock')}</button><input type="hidden" id="sched-start" value="${m.startTime}"></div>
+          <div class="field schedule-time-field"><label for="sched-end-trigger">Ends at</label><button type="button" id="sched-end-trigger" class="schedule-time-trigger" aria-label="Choose class end time" aria-haspopup="dialog" aria-expanded="${VIEW.timePicker?.field === 'end'}" onclick="openScheduleTimePicker('end')"><span>${m.endTime ? formatTime12(m.endTime) : 'Choose time'}</span>${icon('clock')}</button><input type="hidden" id="sched-end" value="${m.endTime}"></div>
+        </div>
+          <div id="schedule-time-summary" class="schedule-time-summary${timeSummary.invalid ? ' is-error' : ''}" aria-live="polite">${timeSummary.text}</div>
+        </div>
+        <div class="field schedule-class-field"><label for="sched-label">Class or teacher</label><input id="sched-label" value="${escapeAttr(m.label)}" placeholder="e.g. Mathematics · Ms. Santos" autocomplete="off"></div>
+        <div class="schedule-repeat-note">${icon('calendar')}<span>Repeats every <strong>${DAY_NAMES[m.dayOfWeek-1]}</strong> in this room.</span></div>
+        <div id="schedule-message" aria-live="polite"></div>
       </div>
-    </div>
+      <footer class="schedule-modal-footer">
+        ${m.editingId ? `<button class="btn-sm danger schedule-delete" type="button" onclick="deleteScheduleEntry(${m.editingId})">${icon('trash')}Delete</button>` : `<span></span>`}
+        <div class="schedule-modal-actions">
+          <button class="btn-sm schedule-cancel" type="button" onclick="closeScheduleModal()">Cancel</button>
+          <button class="btn-sm primary schedule-save" type="button" onclick="saveScheduleEntry()">${icon('save')}${m.editingId ? 'Save changes' : 'Save class'}</button>
+        </div>
+      </footer>
+    </section>
   </div>`;
 }
 async function saveScheduleEntry(){
@@ -1713,6 +1976,10 @@ async function saveScheduleEntry(){
 
   if(!start || !end){
     setInlineMessage('schedule-message', 'err', 'Start and end time are required.');
+    return;
+  }
+  if(start >= end){
+    setInlineMessage('schedule-message', 'err', 'End time must be later than start time.');
     return;
   }
 
