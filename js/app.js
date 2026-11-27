@@ -3033,32 +3033,53 @@ function renderStudentDashboard(){
 }
 
 /* ===================== POLLING (live-ish updates) ===================== */
+let POLLING_BUSY = false;
+let LAST_RENDER_MINUTE = '';
+
+function dataSignature(){
+  return JSON.stringify([ROOMS, RESERVATIONS, ACTIVITY_LOGS, FOLLOWS, SERVER_USERS, SCHEDULES, PENDING_TEACHERS]);
+}
+function userIsBusy(){
+  const active = document.activeElement;
+  const typing = active && (active.tagName==='INPUT' || active.tagName==='SELECT' || active.tagName==='TEXTAREA');
+  return !!(typing || SCAN.active || VIEW.confirm || VIEW.tab === 'info' || VIEW.scheduleModal || VIEW.checkinModal || VIEW.timePicker || document.querySelector('#reservation-message .msg-banner'));
+}
 function startPolling(){
   stopPolling();
   POLL_TIMER = setInterval(async ()=>{
-    const active = document.activeElement;
-    const typing = active && (active.tagName==='INPUT' || active.tagName==='SELECT' || active.tagName==='TEXTAREA');
-    if(typing || SCAN.active || VIEW.confirm || VIEW.tab === 'info' || VIEW.scheduleModal || VIEW.checkinModal || document.querySelector('#reservation-message .msg-banner')) return;
+    if(POLLING_BUSY || userIsBusy()) return;
+    POLLING_BUSY = true;
+    try{
+      const before = dataSignature();
+      await loadRoomsFromServer();
+      await loadReservationsFromServer();
+      await loadActivityLogsFromServer();
+      await loadFollowsFromServer();
+      await loadUsersFromServer();
+      await loadSchedulesFromServer();
+      if(CURRENT_USER.role === 'admin'){
+        await loadPendingTeachersFromServer();
+      }
 
-    await loadRoomsFromServer();
-    await loadReservationsFromServer();
-    await loadActivityLogsFromServer();
-    await loadFollowsFromServer();
-    await loadUsersFromServer();
-    await loadSchedulesFromServer();
-    if(CURRENT_USER.role === 'admin'){
-      await loadPendingTeachersFromServer();
-    }
+      if(CURRENT_USER && !SERVER_USERS.some(u => String(u.id) === String(CURRENT_USER.id))){
+        performLogout();
+        AUTH_MODE = 'login';
+        VIEW.err = "You've been removed by the admin.";
+        render();
+        return;
+      }
 
-    if(CURRENT_USER && !SERVER_USERS.some(u => String(u.id) === String(CURRENT_USER.id))){
-      performLogout();
-      AUTH_MODE = 'login';
-      VIEW.err = "You've been removed by the admin.";
+      // the user started something while the data was loading: don't redraw
+      if(userIsBusy()) return;
+
+      // redraw only if the data changed, or once every minute (for time-based labels)
+      const minute = manilaNow().full.slice(0, 16);
+      if(dataSignature() === before && minute === LAST_RENDER_MINUTE) return;
+      LAST_RENDER_MINUTE = minute;
       render();
-      return;
+    } finally {
+      POLLING_BUSY = false;
     }
-
-    render();
   }, 4000);
 }
 function stopPolling(){ if(POLL_TIMER) clearInterval(POLL_TIMER); POLL_TIMER=null; }
