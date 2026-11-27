@@ -194,9 +194,13 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .schedule-modal-footer .schedule-save{min-width:126px;box-shadow:0 5px 14px -8px rgba(63,120,224,.75);}
 .schedule-modal-footer .schedule-cancel{min-width:82px;}
 .schedule-modal-footer .schedule-delete{min-width:90px;}
-.scan-video-wrap{position:relative;margin-bottom:14px;overflow:hidden;border-radius:12px;background:#111;}
-.scan-video-wrap video{display:block;width:100%;}
+.scan-video-wrap{position:relative;margin:0 auto 14px;overflow:hidden;border-radius:12px;background:#111;width:100%;max-width:360px;}
+.scan-video-wrap video{display:block;width:100%;max-height:360px;object-fit:cover;}
 .scan-frame{position:absolute;inset:14%;border:2px solid #fff;border-radius:10px;box-shadow:0 0 0 999px rgba(17,27,56,.16);pointer-events:none;}
+
+@media (hover:hover) and (pointer:fine){
+  .scan-video-wrap video{transform:scaleX(-1);}
+}
 
 /* ---------- Loading screen ---------- */
 .loading-screen{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg);}
