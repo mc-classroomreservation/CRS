@@ -2084,7 +2084,8 @@ function renderTeacherStatus(){
 
 /* ----- reservations ----- */
 function renderTeacherReservations(){
-  const myReservations = RESERVATIONS.filter(r => String(r.teacher_id) === String(CURRENT_USER.id) && ['pending','approved'].includes(r.status));
+    const nowFull = manilaNow().full;
+  const myReservations = RESERVATIONS.filter(r => String(r.teacher_id) === String(CURRENT_USER.id) && ['pending','approved'].includes(r.status) && r.start_time > nowFull);
   return `
     <div class="page-head">
       <h2>Reservations</h2>
@@ -2897,7 +2898,7 @@ function renderTeacherDashboard(){
   const mine = myOccupiedRoom();
 
   const upcoming = RESERVATIONS
-    .filter(r => String(r.teacher_id) === myId && r.status === 'approved' && r.end_time > now.full)
+    .filter(r => String(r.teacher_id) === myId && r.status === 'approved' && r.start_time > now.full)
     .sort((a, b) => a.start_time.localeCompare(b.start_time));
   const todayLeft = upcoming.filter(r => r.start_time.slice(0,10) === now.date).length;
   const pendingFollowers = FOLLOWS.filter(f => String(f.teacher_id) === myId && f.status === 'pending').length;
