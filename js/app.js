@@ -1799,7 +1799,7 @@ function openScheduleModal(roomId, dayOfWeek, scheduleId){
     editingId: scheduleId || null,
     startTime: existing ? existing.start_time.slice(0,5) : '',
     endTime: existing ? existing.end_time.slice(0,5) : '',
-    label: existing ? (existing.label || '') : ''
+    teacherId: existing && existing.teacher_id ? String(existing.teacher_id) : ''
   };
   render();
 }
@@ -1816,10 +1816,10 @@ function captureScheduleModalFields(){
   if(!m) return;
   const start = document.getElementById('sched-start');
   const end = document.getElementById('sched-end');
-  const label = document.getElementById('sched-label');
+  const teacher = document.getElementById('sched-teacher');
   if(start) m.startTime = start.value;
   if(end) m.endTime = end.value;
-  if(label) m.label = label.value;
+  if(teacher) m.teacherId = teacher.value;
 }
 function openScheduleTimePicker(which){
   const m = VIEW.scheduleModal;
@@ -1954,7 +1954,12 @@ function renderScheduleModal(){
         </div>
           <div id="schedule-time-summary" class="schedule-time-summary${timeSummary.invalid ? ' is-error' : ''}" aria-live="polite">${timeSummary.text}</div>
         </div>
-        <div class="field schedule-class-field"><label for="sched-label">Class or teacher</label><input id="sched-label" value="${escapeAttr(m.label)}" placeholder="e.g. Mathematics · Ms. Santos" autocomplete="off"></div>
+        <div class="field schedule-class-field"><label for="sched-teacher">Teacher</label>
+          <select id="sched-teacher" onchange="VIEW.scheduleModal.teacherId = this.value">
+            <option value="">Select a teacher</option>
+            ${SERVER_USERS.filter(u => u.role === 'teacher').map(t => `<option value="${t.id}" ${String(t.id) === m.teacherId ? 'selected' : ''}>${escapeAttr(t.name)}</option>`).join('')}
+          </select>
+        </div>
         <div class="schedule-repeat-note">${icon('calendar')}<span>Repeats every <strong>${DAY_NAMES[m.dayOfWeek-1]}</strong> in this room.</span></div>
         <div id="schedule-message" aria-live="polite"></div>
       </div>
@@ -1972,7 +1977,7 @@ async function saveScheduleEntry(){
   const m = VIEW.scheduleModal;
   const start = document.getElementById('sched-start').value;
   const end = document.getElementById('sched-end').value;
-  const label = document.getElementById('sched-label').value.trim();
+  const teacherId = document.getElementById('sched-teacher').value;
 
   if(!start || !end){
     setInlineMessage('schedule-message', 'err', 'Start and end time are required.');
@@ -1983,7 +1988,12 @@ async function saveScheduleEntry(){
     return;
   }
 
-  const payload = { room_id: m.roomId, day_of_week: m.dayOfWeek, start_time: start, end_time: end, label: label || null };
+  if(!teacherId){
+    setInlineMessage('schedule-message', 'err', 'Please choose a teacher.');
+    return;
+  }
+
+  const payload = { room_id: m.roomId, teacher_id: Number(teacherId), day_of_week: m.dayOfWeek, start_time: start, end_time: end };
 
   try{
     const response = m.editingId
